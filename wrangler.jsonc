@@ -4,12 +4,51 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "jewelry-api",
+	"name": "workers",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-07-24",
 	"observability": {
 		"enabled": true
+	},
+
+	/**
+	 * Environment Variables (Development - Default)
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+	 */
+	"vars": {
+		"ENVIRONMENT": "development",
+		"AI_GENERATION_URL": "https://vercel-api.example.com/generate-charm",
+		"SUPABASE_URL": "https://your-project.supabase.co",
+		"SHOPIFY_STORE_URL": "https://jewels-ai-dev.myshopify.com"
+	},
+
+	/**
+	 * Environment-specific configurations
+	 */
+	"env": {
+		"production": {
+			"vars": {
+				"ENVIRONMENT": "production",
+				"AI_GENERATION_URL": "https://ai-api.jewels-ai.com/generate-charm",
+				"SUPABASE_URL": "https://jewels-ai-prod.supabase.co",
+				"SHOPIFY_STORE_URL": "https://jewels-ai.myshopify.com"
+			}
+		},
+		"staging": {
+			"vars": {
+				"ENVIRONMENT": "staging",
+				"AI_GENERATION_URL": "https://your-staging-ai-api.com/generate-charm",
+				"SUPABASE_URL": "https://your-staging-project.supabase.co",
+				"SHOPIFY_STORE_URL": "https://your-staging-store.myshopify.com"
+			}
+		}
 	}
+
+	/**
+	 * Note: Use secrets to store sensitive data.
+	 * https://developers.cloudflare.com/workers/configuration/secrets/
+	 */
+
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
@@ -21,16 +60,6 @@
 	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
 	 * databases, object storage, AI inference, real-time communication and more.
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
-	 */
-
-	/**
-	 * Environment Variables
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
-	 */
-	// "vars": { "MY_VARIABLE": "production_value" },
-	/**
-	 * Note: Use secrets to store sensitive data.
-	 * https://developers.cloudflare.com/workers/configuration/secrets/
 	 */
 
 	/**

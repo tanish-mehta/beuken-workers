@@ -1,0 +1,4 @@
+name = "workers"
+type = "javascript"
+workers_dev = true
+compatibility_date = "2025-07-24"
