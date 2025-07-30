@@ -163,139 +163,128 @@ async function generateGoldImage(silverImageUrl: string, env: Env): Promise<stri
 	return result.images[0].url;
 }
 
-// Shopify product creation
-async function createShopifyProduct(
-	originalImageUrl: string,
-	silverImageUrl: string,
-	goldImageUrl: string,
-	story: string,
-	email: string,
-	env: Env
+/**
+ * Create a new Shopify product with multiple images and variants
+ */
+export async function createShopifyProduct(
+  originalImageUrl: string,
+  silverImageUrl: string,
+  goldImageUrl: string,
+  story: string,
+  email: string,
+  env: { SHOPIFY_STORE_URL: string; SHOPIFY_ACCESS_TOKEN: string }
 ): Promise<string> {
-	const sizeReferenceImageUrl = 'https://example.com/size-reference.jpg'; // Same URL for every product
-	
-	// Use proper Shopify Admin API endpoint format
-	console.log('Shopify Store URL:', env.SHOPIFY_STORE_URL);
-	console.log('Shopify Access Token exists:', !!env.SHOPIFY_ACCESS_TOKEN);
-	console.log('Shopify Access Token format:', env.SHOPIFY_ACCESS_TOKEN?.substring(0, 6) + '...' + env.SHOPIFY_ACCESS_TOKEN?.substring(env.SHOPIFY_ACCESS_TOKEN.length - 6));
-	
-	// First test the connection with a simple GET request
-	console.log('Testing Shopify API connection...');
-	const testResponse = await fetch(`${env.SHOPIFY_STORE_URL}/admin/api/2024-07/shop.json`, {
-		method: 'GET',
-		headers: {
-			'X-Shopify-Access-Token': env.SHOPIFY_ACCESS_TOKEN,
-			'Content-Type': 'application/json',
-		}
-	});
-	
-	if (!testResponse.ok) {
-		const testError = await testResponse.text();
-		console.error('Shopify API Connection Test Failed:', {
-			status: testResponse.status,
-			body: testError
-		});
-		throw new Error(`Shopify API connection failed: ${testResponse.status} - ${testError}`);
-	} else {
-		console.log('Shopify API connection successful!');
-	}
-	
-	const shopifyResponse = await fetch(`${env.SHOPIFY_STORE_URL}/admin/api/2024-07/products.json`, {
-		method: 'POST',
-		headers: {
-			'X-Shopify-Access-Token': env.SHOPIFY_ACCESS_TOKEN,
-			'Content-Type': 'application/json',
-		},
-		body: JSON.stringify({
-			product: {
-				title: `Custom Jewelry Charm - ${new Date().toISOString().split('T')[0]}`,
-				body_html: `<div class="custom-charm-description">
-					<h3>Your Personal Story</h3>
-					<p>${story}</p>
-					<br/>
-					<p><strong>Customer:</strong> ${email}</p>
-					<p><strong>Created:</strong> ${new Date().toLocaleDateString()}</p>
-				</div>`,
-				vendor: 'Custom Jewelry Co.',
-				product_type: 'Jewelry Charm',
-				tags: ['custom', 'charm', 'jewelry', 'personalized', 'ai-generated'],
-				status: 'active',
-				published: true,
-				images: [
-					{ 
-						src: originalImageUrl, 
-						alt: 'Original Inspiration Image',
-						position: 1
-					},
-					{ 
-						src: silverImageUrl, 
-						alt: 'Silver Charm Version',
-						position: 2
-					},
-					{ 
-						src: goldImageUrl, 
-						alt: 'Gold Charm Version',
-						position: 3
-					},
-					{ 
-						src: sizeReferenceImageUrl, 
-						alt: 'Size Reference',
-						position: 4
-					}
-				],
-				variants: [
-					{
-						title: 'Silver',
-						price: '99.99',
-						sku: `CHARM-SILVER-${Date.now()}`,
-						inventory_quantity: 1,
-						inventory_management: 'shopify',
-						inventory_policy: 'deny',
-						fulfillment_service: 'manual',
-						weight: 0.1,
-						weight_unit: 'oz',
-						requires_shipping: true,
-						taxable: true
-					},
-					{
-						title: 'Gold',
-						price: '199.99',
-						sku: `CHARM-GOLD-${Date.now()}`,
-						inventory_quantity: 1,
-						inventory_management: 'shopify',
-						inventory_policy: 'deny',
-						fulfillment_service: 'manual',
-						weight: 0.15,
-						weight_unit: 'oz',
-						requires_shipping: true,
-						taxable: true
-					}
-				],
-				options: [
-					{
-						name: 'Material',
-						values: ['Silver', 'Gold']
-					}
-				]
-			}
-		})
-	});
+  const sizeReferenceImageUrl = "https://example.com/size-reference.jpg";
 
-	if (!shopifyResponse.ok) {
-		const errorBody = await shopifyResponse.text();
-		console.error('Shopify API Error Details:', {
-			status: shopifyResponse.status,
-			statusText: shopifyResponse.statusText,
-			url: `${env.SHOPIFY_STORE_URL}/admin/api/2023-10/products.json`,
-			body: errorBody,
-			headers: Object.fromEntries(shopifyResponse.headers.entries())
-		});
-		throw new Error(`Shopify API error: ${shopifyResponse.status} - ${errorBody}`);
-	}
+  // Shopify API version (update to the latest when needed)
+  const API_VERSION = "2025-01";
 
-	const result = await shopifyResponse.json() as any;
-	return `${env.SHOPIFY_STORE_URL.replace('/admin', '')}/products/${result.product.handle}`;
+  // Helper to make Shopify API requests
+  async function shopifyFetch(endpoint: string, options: RequestInit) {
+    const response = await fetch(`${env.SHOPIFY_STORE_URL}/admin/api/${API_VERSION}${endpoint}`, {
+      ...options,
+      headers: {
+        "X-Shopify-Access-Token": env.SHOPIFY_ACCESS_TOKEN,
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ Shopify API Error:", {
+        status: response.status,
+        statusText: response.statusText,
+        endpoint,
+        errorText,
+      });
+      throw new Error(`Shopify API request failed (${response.status}): ${errorText}`);
+    }
+
+    return response.json();
+  }
+
+  // 1. Test Shopify API connection
+  console.log("🔌 Testing Shopify API connection...");
+  await shopifyFetch("/shop.json", { method: "GET" });
+  console.log("✅ Shopify API connection successful");
+
+  // 2. Create the product
+  const productPayload = {
+    product: {
+      title: `Custom Jewelry Charm - ${new Date().toISOString().split("T")[0]}`,
+      body_html: `
+        <div class="custom-charm-description">
+          <h3>Your Personal Story</h3>
+          <p>${story}</p>
+          <br/>
+          <p><strong>Customer:</strong> ${email}</p>
+          <p><strong>Created:</strong> ${new Date().toLocaleDateString()}</p>
+        </div>
+      `,
+      vendor: "Custom Jewelry Co.",
+      product_type: "Jewelry Charm",
+      tags: ["custom", "charm", "jewelry", "personalized", "ai-generated"],
+      status: "active",
+      published: true,
+      images: [
+        { src: originalImageUrl, alt: "Original Inspiration Image", position: 1 },
+        { src: silverImageUrl, alt: "Silver Charm Version", position: 2 },
+        { src: goldImageUrl, alt: "Gold Charm Version", position: 3 },
+        { src: sizeReferenceImageUrl, alt: "Size Reference", position: 4 },
+      ],
+      variants: [
+        {
+          option1: "Silver",
+          price: "99.99",
+          sku: `CHARM-SILVER-${Date.now()}`,
+          inventory_quantity: 1,
+          inventory_management: "shopify",
+          inventory_policy: "deny",
+          fulfillment_service: "manual",
+          weight: 0.1,
+          weight_unit: "oz",
+          requires_shipping: true,
+          taxable: true,
+        },
+        {
+          option1: "Gold",
+          price: "199.99",
+          sku: `CHARM-GOLD-${Date.now()}`,
+          inventory_quantity: 1,
+          inventory_management: "shopify",
+          inventory_policy: "deny",
+          fulfillment_service: "manual",
+          weight: 0.15,
+          weight_unit: "oz",
+          requires_shipping: true,
+          taxable: true,
+        },
+      ],
+      options: [
+        {
+          name: "Material",
+          values: ["Silver", "Gold"],
+        },
+      ],
+    },
+  };
+
+  const response = await shopifyFetch("/products.json", {
+    method: "POST",
+    body: JSON.stringify(productPayload),
+  });
+
+  if (!response || typeof response !== "object" || !("product" in response)) {
+    throw new Error("Failed to create product: Unexpected Shopify API response");
+  }
+
+  const { product } = response as { product: { handle: string } };
+
+  // 3. Return product URL
+  return `${env.SHOPIFY_STORE_URL.replace("/admin", "")}/products/${product.handle}`;
 }
+
 
 async function handleCreateCharm(request: Request, env: Env): Promise<Response> {
 	try {

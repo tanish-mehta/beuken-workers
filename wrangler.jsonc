@@ -19,7 +19,7 @@
 		"ENVIRONMENT": "development",
 		"AI_GENERATION_URL": "https://vercel-api.example.com/generate-charm",
 		"SUPABASE_URL": "https://your-project.supabase.co",
-		"SHOPIFY_STORE_URL": "https://beuken-ai.myshopify.com"
+		"SHOPIFY_STORE_URL": "https://dp1qh8-eb.myshopify.com"
 	},
 
 	/**
