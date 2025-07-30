@@ -1,4 +1,42 @@
 name = "workers"
-type = "javascript"
-workers_dev = true
-compatibility_date = "2025-07-24"
+main = "src/index.ts"
+compatibility_date = "2025-01-25"
+
+[env.development]
+vars = { ENVIRONMENT = "development" }
+
+[env.development.vars]
+ENVIRONMENT = "development"
+AI_GENERATION_URL = "https://vercel-api.example.com/generate-charm"
+SUPABASE_URL = "https://your-project.supabase.co"
+SHOPIFY_STORE_URL = "https://your-store-name.myshopify.com"
+# These should be set as secrets using: wrangler secret put OPENAI_API_KEY --env development
+# OPENAI_API_KEY = "your-openai-api-key"
+# FAL_API_KEY = "your-fal-api-key"
+# SHOPIFY_ACCESS_TOKEN = "shpat_xxxxxxxxxxxxx"
+
+[env.staging]
+vars = { ENVIRONMENT = "staging" }
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+AI_GENERATION_URL = "https://your-staging-ai-api.com/generate-charm"
+SUPABASE_URL = "https://your-staging-project.supabase.co"
+SHOPIFY_STORE_URL = "https://your-staging-store.myshopify.com"
+# These should be set as secrets using: wrangler secret put OPENAI_API_KEY --env staging
+# OPENAI_API_KEY = "your-openai-api-key"
+# FAL_API_KEY = "your-fal-api-key"
+# SHOPIFY_ACCESS_TOKEN = "shpat_xxxxxxxxxxxxx"
+
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+[env.production.vars]
+ENVIRONMENT = "production"
+AI_GENERATION_URL = "https://your-production-ai-api.com/generate-charm"
+SUPABASE_URL = "https://your-production-project.supabase.co"
+SHOPIFY_STORE_URL = "https://your-production-store.myshopify.com"
+# These should be set as secrets using: wrangler secret put OPENAI_API_KEY --env production
+# OPENAI_API_KEY = "your-openai-api-key"
+# FAL_API_KEY = "your-fal-api-key"
+# SHOPIFY_ACCESS_TOKEN = "shpat_xxxxxxxxxxxxx"
