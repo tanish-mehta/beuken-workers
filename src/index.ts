@@ -226,12 +226,7 @@ export async function createShopifyProduct(
     return response.json();
   }
 
-  // 1. Test Shopify API connection
-  console.log("🔌 Testing Shopify API connection...");
-  await shopifyFetch("/shop.json", { method: "GET" });
-  console.log("✅ Shopify API connection successful");
-
-  // 2. Create the product
+  // Create the product
   const productPayload = {
     product: {
       title: productName,
