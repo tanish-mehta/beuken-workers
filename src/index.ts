@@ -1,16 +1,3 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
 interface CreateCharmRequest {
 	image: File;
 	email: string;
@@ -37,27 +24,38 @@ async function uploadImageToStorage(imageBuffer: ArrayBuffer, filename: string):
 	return `https://storage.example.com/uploads/${filename}`;
 }
 
-// OpenAI Vision API integration
-async function generateStoryWithOpenAI(imageBase64: string, env: Env): Promise<string> {
-	console.log('OpenAI API Key exists:', !!env.OPENAI_API_KEY);
-	console.log('OpenAI API Key first 10 chars:', env.OPENAI_API_KEY?.substring(0, 10));
-	console.log('OpenAI API Key last 10 chars:', env.OPENAI_API_KEY?.substring(env.OPENAI_API_KEY.length - 10));
+// Groq API integration for product name and story generation
+async function generateProductNameAndStory(imageBase64: string, env: Env): Promise<{ productName: string; story: string }> {
+	console.log('Generating product name and story with Groq...');
+	console.log('Groq API Key exists:', !!env.GROQ_API_KEY);
+	console.log('Groq API Key length:', env.GROQ_API_KEY ? env.GROQ_API_KEY.length : 0);
+	console.log('Groq API Key starts with:', env.GROQ_API_KEY ? env.GROQ_API_KEY.substring(0, 10) + '...' : 'undefined');
 	
-	const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+	const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
 		method: 'POST',
 		headers: {
-			'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
+			'Authorization': `Bearer ${env.GROQ_API_KEY}`,
 			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify({
-			model: 'gpt-4o',
+			model: 'meta-llama/llama-4-scout-17b-16e-instruct',
 			messages: [
 				{
 					role: 'user',
 					content: [
 						{
 							type: 'text',
-							text: 'Create a 3-4 sentence story for this image that is being turned into a charm. Make it meaningful and personal.'
+							text: `Analyze this image and provide:
+1. A short, catchy product name (maximum 3 words) for this jewelry charm
+2. A compelling 2-3 sentence product description that makes this jewelry piece sound beautiful and desirable
+
+Return ONLY a valid JSON object with no markdown formatting, no code blocks, and no additional text:
+{
+  "productName": "Your Product Name",
+  "story": "Your product description here..."
+}
+
+Make the product name descriptive and appealing for a jewelry store (examples: "Golden Memory", "Silver Dreams", "Athletic Spirit"). The description should highlight the beauty, craftsmanship, and appeal of the jewelry piece itself, not tell a personal story.`
 						},
 						{
 							type: 'image_url',
@@ -68,22 +66,43 @@ async function generateStoryWithOpenAI(imageBase64: string, env: Env): Promise<s
 					]
 				}
 			],
-			max_tokens: 150
+			max_tokens: 200,
+			temperature: 0.7
 		})
 	});
 
-	if (!openAIResponse.ok) {
-		const errorBody = await openAIResponse.text();
-		console.error('OpenAI API Error Details:', {
-			status: openAIResponse.status,
-			statusText: openAIResponse.statusText,
+	if (!groqResponse.ok) {
+		const errorBody = await groqResponse.text();
+		console.error('Groq API Error Details:', {
+			status: groqResponse.status,
+			statusText: groqResponse.statusText,
 			body: errorBody
 		});
-		throw new Error(`OpenAI API error: ${openAIResponse.status} - ${errorBody}`);
+		// Fallback values if API fails
+		return {
+			productName: 'Custom Charm',
+			story: 'A beautiful memory captured in a charm, ready to be treasured forever.'
+		};
 	}
 
-	const result = await openAIResponse.json() as any;
-	return result.choices[0].message.content;
+	const result = await groqResponse.json() as any;
+	const content = result.choices[0].message.content;
+	
+	try {
+		// Parse JSON response
+		const parsed = JSON.parse(content);
+		return {
+			productName: parsed.productName || 'Custom Charm',
+			story: parsed.story || 'A beautiful memory captured in a charm, ready to be treasured forever.'
+		};
+	} catch (parseError) {
+		console.error('Failed to parse Groq response as JSON:', content);
+		// Fallback values if parsing fails
+		return {
+			productName: 'Custom Charm',
+			story: 'A beautiful memory captured in a charm, ready to be treasured forever.'
+		};
+	}
 }
 
 // Fal LoRA API integration for silver image
@@ -104,7 +123,8 @@ async function generateSilverImage(imageBase64: string, env: Env): Promise<strin
 			guidance_scale: 2.5,
 			num_images: 1,
 			output_format: 'png',
-			resolution_mode: 'match_input',
+			width: 1024,
+			height: 1024,
 			loras: [{
 				path: 'https://v3.fal.media/files/koala/6BA9zqC6v0YIbZXy-5fb7_adapter_model.safetensors',
 				scale: 1.0
@@ -144,7 +164,8 @@ async function generateGoldImage(silverImageUrl: string, env: Env): Promise<stri
 			guidance_scale: 2.5,
 			num_images: 1,
 			output_format: 'png',
-			resolution_mode: 'match_input'
+			width: 1024,
+			height: 1024
 		})
 	});
 
@@ -171,6 +192,7 @@ export async function createShopifyProduct(
   silverImageUrl: string,
   goldImageUrl: string,
   story: string,
+  productName: string,
   email: string,
   env: { SHOPIFY_STORE_URL: string; SHOPIFY_ACCESS_TOKEN: string }
 ): Promise<string> {
@@ -212,14 +234,10 @@ export async function createShopifyProduct(
   // 2. Create the product
   const productPayload = {
     product: {
-      title: `Custom Jewelry Charm - ${new Date().toISOString().split("T")[0]}`,
+      title: productName,
       body_html: `
         <div class="custom-charm-description">
-          <h3>Your Personal Story</h3>
           <p>${story}</p>
-          <br/>
-          <p><strong>Customer:</strong> ${email}</p>
-          <p><strong>Created:</strong> ${new Date().toLocaleDateString()}</p>
         </div>
       `,
       vendor: "Custom Jewelry Co.",
@@ -235,22 +253,10 @@ export async function createShopifyProduct(
       ],
       variants: [
         {
-          option1: "Silver",
-          price: "99.99",
-          sku: `CHARM-SILVER-${Date.now()}`,
-          inventory_quantity: 1,
-          inventory_management: "shopify",
-          inventory_policy: "deny",
-          fulfillment_service: "manual",
-          weight: 0.1,
-          weight_unit: "oz",
-          requires_shipping: true,
-          taxable: true,
-        },
-        {
-          option1: "Gold",
-          price: "199.99",
-          sku: `CHARM-GOLD-${Date.now()}`,
+          option1: "14K Gold",
+			  price: "299.99",
+		  compare_at_price: "399.99", 
+          sku: `CHARM-14K-${crypto.randomUUID()}`,
           inventory_quantity: 1,
           inventory_management: "shopify",
           inventory_policy: "deny",
@@ -259,12 +265,40 @@ export async function createShopifyProduct(
           weight_unit: "oz",
           requires_shipping: true,
           taxable: true,
+		  },
+		 {
+          option1: "Sterling Silver",
+			 price: "99.99",
+		  compare_at_price: "149.99",
+          sku: `CHARM-SILVER-${crypto.randomUUID()}`,
+          inventory_quantity: 1,
+          inventory_management: "shopify",
+          inventory_policy: "deny",
+          fulfillment_service: "manual",
+          weight: 0.1,
+          weight_unit: "oz",
+          requires_shipping: true,
+          taxable: true,
+		  },
+		  {
+          option1: "Gold Vermeil",
+			  price: "149.99",
+		  compare_at_price: "199.99",
+          sku: `CHARM-VERMEIL-${crypto.randomUUID()}`,
+          inventory_quantity: 1,
+          inventory_management: "shopify",
+          inventory_policy: "deny",
+          fulfillment_service: "manual",
+          weight: 0.12,
+          weight_unit: "oz",
+          requires_shipping: true,
+          taxable: true,
         },
       ],
       options: [
         {
           name: "Material",
-          values: ["Silver", "Gold"],
+          values: ["Sterling Silver", "Gold Vermeil", "14K Gold"],
         },
       ],
     },
@@ -315,28 +349,36 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 		const originalImageBuffer = await image.arrayBuffer();
 		const originalImageUrl = await uploadImageToStorage(originalImageBuffer, `original-${Date.now()}.jpg`);
 
-		// Step 2: Generate story with OpenAI Vision API (if no story provided)
-		let generatedStory = story;
-		if (!story) {
-			console.log('Generating story with OpenAI Vision API...');
-			generatedStory = await generateStoryWithOpenAI(imageBase64, env);
-		}
+		// Step 2: Start parallel processing for independent operations
+		console.log('Starting parallel processing...');
+		
+		const [nameAndStory, silverImageUrl] = await Promise.all([
+			// Generate product name and story in single Groq API call (if no story provided)
+			story ? 
+				Promise.resolve({ productName: 'Custom Charm', story }) : 
+				generateProductNameAndStory(imageBase64, env),
+			// Generate silver image using Fal LoRA
+			generateSilverImage(imageBase64, env)
+		]);
 
-		// Step 3: Generate silver image using Fal LoRA
-		console.log('Generating silver image with Fal LoRA...');
-		const silverImageUrl = await generateSilverImage(imageBase64, env);
+		console.log('Parallel processing completed. Generated:', {
+			productName: nameAndStory.productName,
+			storyLength: nameAndStory.story.length,
+			silverImageGenerated: !!silverImageUrl
+		});
 
-		// Step 4: Generate gold image using Fal Flux Kontext Max
+		// Step 3: Generate gold image (depends on silver image)
 		console.log('Generating gold image with Fal Flux Kontext Max...');
 		const goldImageUrl = await generateGoldImage(silverImageUrl, env);
 
-		// Step 5: Create Shopify product
+		// Step 4: Create Shopify product with all generated data
 		console.log('Creating Shopify product...');
 		const shopifyProductUrl = await createShopifyProduct(
 			originalImageUrl,
 			silverImageUrl,
 			goldImageUrl,
-			generatedStory,
+			nameAndStory.story,
+			nameAndStory.productName,
 			email,
 			env
 		);
@@ -349,7 +391,7 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 				originalImageUrl,
 				silverImageUrl,
 				goldImageUrl,
-				story: generatedStory,
+				story: nameAndStory.story,
 				inspiration,
 				email,
 				publicGallery,
