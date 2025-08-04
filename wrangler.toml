@@ -2,8 +2,17 @@ name = "workers"
 main = "src/index.ts"
 compatibility_date = "2025-01-25"
 
+[[r2_buckets]]
+binding = "USER_UPLOADS_BUCKET"
+bucket_name = "useruploads"
+
 [env.development]
 vars = { ENVIRONMENT = "development" }
+
+[[env.development.r2_buckets]]
+binding = "USER_UPLOADS_BUCKET"
+bucket_name = "useruploads-dev"
+preview_bucket_name = "useruploads-dev"
 
 [env.development.vars]
 ENVIRONMENT = "development"
@@ -18,6 +27,10 @@ SHOPIFY_STORE_URL = "https://your-store-name.myshopify.com"
 [env.staging]
 vars = { ENVIRONMENT = "staging" }
 
+[[env.staging.r2_buckets]]
+binding = "USER_UPLOADS_BUCKET"
+bucket_name = "useruploads"
+
 [env.staging.vars]
 ENVIRONMENT = "staging"
 AI_GENERATION_URL = "https://your-staging-ai-api.com/generate-charm"
@@ -30,6 +43,10 @@ SHOPIFY_STORE_URL = "https://your-staging-store.myshopify.com"
 
 [env.production]
 vars = { ENVIRONMENT = "production" }
+
+[[env.production.r2_buckets]]
+binding = "USER_UPLOADS_BUCKET"
+bucket_name = "useruploads"
 
 [env.production.vars]
 ENVIRONMENT = "production"

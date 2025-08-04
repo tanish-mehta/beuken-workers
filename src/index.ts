@@ -24,6 +24,47 @@ async function uploadImageToStorage(imageBuffer: ArrayBuffer, filename: string):
 	return `https://storage.example.com/uploads/${filename}`;
 }
 
+// Helper function to upload image to Cloudflare R2 storage
+async function uploadImageToR2(imageBuffer: ArrayBuffer, filename: string, productId: string, env: Env): Promise<string> {
+	try {
+		// Create the R2 bucket binding
+		const bucket = env.USER_UPLOADS_BUCKET;
+		console.log('🔍 Debug: bucket value:', bucket);
+		console.log('🔍 Debug: bucket type:', typeof bucket);
+		
+		// Check if bucket is available
+		if (!bucket) {
+			console.log('⚠️ R2 bucket not available, using fallback URL');
+			return `https://pub-.r2.dev/${filename}`;
+		}
+		
+		// Upload to R2 with metadata
+		await bucket.put(filename, imageBuffer, {
+			httpMetadata: {
+				contentType: 'image/jpeg',
+			},
+			customMetadata: {
+				productId: productId,
+				uploadedAt: new Date().toISOString(),
+				type: 'original-image'
+			}
+		});
+		
+		// Return the public URL (you'll need to configure this in your R2 bucket settings)
+		// Replace with your actual R2 public domain
+		// For development, use the dev bucket URL
+		const isDevelopment = env.ENVIRONMENT === 'development';
+		const publicUrl = isDevelopment 
+			? `https://pub-d8271b96bfbf4305ab13f5a6fe0e1035.r2.dev/${filename}`  // TODO: Replace [DEV_BUCKET_ID] with your useruploads-dev bucket's public URL
+			: `https://pub-a60a2e7f4821493380ef9f646ab6b33c.r2.dev/${filename}`;
+		return publicUrl;
+	} catch (error) {
+		console.error('Error uploading to R2:', error);
+		// Fallback to mock URL if R2 upload fails
+		return `https://storage.example.com/uploads/${filename}`;
+	}
+}
+
 // Groq API integration for product name and story generation
 async function generateProductNameAndStory(imageBase64: string, env: Env): Promise<{ productName: string; story: string }> {
 	console.log('Generating product name and story with Groq...');
@@ -46,8 +87,8 @@ async function generateProductNameAndStory(imageBase64: string, env: Env): Promi
 						{
 							type: 'text',
 							text: `Analyze this image and provide:
-1. A short, catchy product name (maximum 3 words) for this jewelry charm
-2. A compelling 2-3 sentence product description that makes this jewelry piece sound beautiful and desirable
+1. A short, catchy product name (maximum 3 words) for a jewelry charm that will be created from this image
+2. A compelling 2-3 sentence product description for the jewelry charm that will be made from this image
 
 Return ONLY a valid JSON object with no markdown formatting, no code blocks, and no additional text:
 {
@@ -55,7 +96,7 @@ Return ONLY a valid JSON object with no markdown formatting, no code blocks, and
   "story": "Your product description here..."
 }
 
-Make the product name descriptive and appealing for a jewelry store (examples: "Golden Memory", "Silver Dreams", "Athletic Spirit"). The description should highlight the beauty, craftsmanship, and appeal of the jewelry piece itself, not tell a personal story.`
+Make the product name descriptive and appealing for a jewelry store (examples: "Golden Memory", "Silver Dreams", "Athletic Spirit"). The description should highlight the beauty, craftsmanship, and appeal of the jewelry charm that will be created from this image.`
 						},
 						{
 							type: 'image_url',
@@ -194,6 +235,7 @@ export async function createShopifyProduct(
   story: string,
   productName: string,
   email: string,
+  publicGallery: boolean,
   env: { SHOPIFY_STORE_URL: string; SHOPIFY_ACCESS_TOKEN: string }
 ): Promise<string> {
   const sizeReferenceImageUrl = "https://example.com/size-reference.jpg";
@@ -241,10 +283,9 @@ export async function createShopifyProduct(
       status: "active",
       published: true,
       images: [
-        { src: originalImageUrl, alt: "Original Inspiration Image", position: 1 },
-        { src: silverImageUrl, alt: "Silver Charm Version", position: 2 },
-        { src: goldImageUrl, alt: "Gold Charm Version", position: 3 },
-        { src: sizeReferenceImageUrl, alt: "Size Reference", position: 4 },
+        { src: silverImageUrl, alt: "Silver Charm Version", position: 1 },
+        { src: goldImageUrl, alt: "Gold Charm Version", position: 2 },
+        { src: sizeReferenceImageUrl, alt: "Size Reference", position: 3 },
       ],
       variants: [
         {
@@ -308,9 +349,29 @@ export async function createShopifyProduct(
     throw new Error("Failed to create product: Unexpected Shopify API response");
   }
 
-  const { product } = response as { product: { handle: string } };
+  const { product } = response as { product: { id: number; handle: string } };
 
-  // 3. Return product URL
+  // 3. Add to "By the Community" collection if publicGallery is true
+  if (publicGallery) {
+    try {
+      // Add product to collection using the correct API format
+      await shopifyFetch(`/collects.json`, {
+        method: "POST",
+        body: JSON.stringify({
+          collect: {
+            product_id: product.id,
+            collection_id: 323241443525
+          }
+        })
+      });
+      console.log(`✅ Product ${product.id} added to "By the Community" collection`);
+    } catch (error) {
+      console.error("❌ Error adding product to collection:", error);
+      // Don't fail the entire request if collection addition fails
+    }
+  }
+
+  // 4. Return product URL
   return `${env.SHOPIFY_STORE_URL.replace("/admin", "")}/products/${product.handle}`;
 }
 
@@ -366,24 +427,32 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 		console.log('Generating gold image with Fal Flux Kontext Max...');
 		const goldImageUrl = await generateGoldImage(silverImageUrl, env);
 
-		// Step 4: Create Shopify product with all generated data
+		// Step 4: Create Shopify product with all generated data (without original image)
 		console.log('Creating Shopify product...');
 		const shopifyProductUrl = await createShopifyProduct(
-			originalImageUrl,
+			'', // No original image in Shopify product
 			silverImageUrl,
 			goldImageUrl,
 			nameAndStory.story,
 			nameAndStory.productName,
 			email,
+			publicGallery,
 			env
 		);
+
+		// Step 5: Upload original image to R2 with random filename for security
+		const productId = shopifyProductUrl.split('/').pop() || Date.now().toString();
+		const randomId = crypto.randomUUID();
+		const r2ImageUrl = await uploadImageToR2(originalImageBuffer, `${randomId}.jpg`, productId, env);
+		console.log(`✅ Original image uploaded to R2: ${r2ImageUrl}`);
+		console.log(`🔗 Test the image URL: ${r2ImageUrl}`);
 
 		// Step 6: Return success response with product URL
 		return Response.json({
 			success: true,
 			productUrl: shopifyProductUrl,
 			data: {
-				originalImageUrl,
+				originalImageUrl: r2ImageUrl,
 				silverImageUrl,
 				goldImageUrl,
 				story: nameAndStory.story,
@@ -409,6 +478,7 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+		console.log('🚀 Worker started - Request received:', request.method, request.url);
 		const url = new URL(request.url);
 		
 		// Handle CORS preflight requests

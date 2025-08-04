@@ -22,7 +22,9 @@ declare namespace Cloudflare {
 		GROQ_API_KEY: string;
 	}
 }
-interface Env extends Cloudflare.Env {}
+interface Env extends Cloudflare.Env {
+	USER_UPLOADS_BUCKET: R2Bucket;
+}
 
 // Begin runtime types
 /*! *****************************************************************************
