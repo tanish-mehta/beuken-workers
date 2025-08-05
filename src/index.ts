@@ -236,9 +236,20 @@ export async function createShopifyProduct(
   productName: string,
   email: string,
   publicGallery: boolean,
-  env: { SHOPIFY_STORE_URL: string; SHOPIFY_ACCESS_TOKEN: string }
+  env: { SHOPIFY_STORE_URL: string; SHOPIFY_ACCESS_TOKEN: string; ENVIRONMENT?: string }
 ): Promise<string> {
-  const sizeReferenceImageUrl = "https://example.com/size-reference.jpg";
+  // Reference images for different charm types
+  const referenceImages = {
+    pendant: env.ENVIRONMENT === 'development' 
+      ? "https://pub-d8271b96bfbf4305ab13f5a6fe0e1035.r2.dev/size-reference-pendant.jpg"
+      : "https://pub-a60a2e7f4821493380ef9f646ab6b33c.r2.dev/size-reference-pendant.jpg",
+    charm: env.ENVIRONMENT === 'development'
+      ? "https://pub-d8271b96bfbf4305ab13f5a6fe0e1035.r2.dev/size-reference-charm.jpg"
+      : "https://pub-a60a2e7f4821493380ef9f646ab6b33c.r2.dev/size-reference-charm.jpg"
+  };
+  
+  // Default to pendant reference image
+  const sizeReferenceImageUrl = referenceImages.pendant;
 
   // Shopify API version (update to the latest when needed)
   const API_VERSION = "2025-01";
@@ -268,7 +279,7 @@ export async function createShopifyProduct(
     return response.json();
   }
 
-  // Create the product
+  // Create the product with all images as product images first
   const productPayload = {
     product: {
       title: productName,
@@ -349,7 +360,45 @@ export async function createShopifyProduct(
     throw new Error("Failed to create product: Unexpected Shopify API response");
   }
 
-  const { product } = response as { product: { id: number; handle: string } };
+  const { product } = response as { product: { id: number; handle: string; variants: any[] } };
+
+  // Now assign specific images to variants
+  const goldVariant = product.variants.find(v => v.option1 === "14K Gold");
+  const silverVariant = product.variants.find(v => v.option1 === "Sterling Silver");
+  const vermeilVariant = product.variants.find(v => v.option1 === "Gold Vermeil");
+
+  // Update images to be variant-specific
+  const updatedImages = [
+    { 
+      src: silverImageUrl, 
+      alt: "Sterling Silver Charm Version", 
+      position: 1,
+      variant_ids: silverVariant ? [silverVariant.id] : undefined
+    },
+    { 
+      src: goldImageUrl, 
+      alt: "Gold Charm Version", 
+      position: 2,
+      variant_ids: goldVariant && vermeilVariant ? [goldVariant.id, vermeilVariant.id] : goldVariant ? [goldVariant.id] : undefined
+    },
+    { 
+      src: sizeReferenceImageUrl, 
+      alt: "Size Reference", 
+      position: 3 
+      // No variant_ids means it shows for all variants
+    },
+  ];
+
+  // Update the product with variant-specific image assignments
+  await shopifyFetch(`/products/${product.id}.json`, {
+    method: "PUT",
+    body: JSON.stringify({
+      product: {
+        id: product.id,
+        images: updatedImages
+      }
+    }),
+  });
 
   // 3. Add to "By the Community" collection if publicGallery is true
   if (publicGallery) {
