@@ -159,7 +159,7 @@ async function generateSilverImage(imageBase64: string, env: Env): Promise<strin
 		},
 		body: JSON.stringify({
 			image_url: `data:image/jpeg;base64,${imageBase64}`,
-			prompt: 'Convert input photos into highly detailed silver pendant charms with a realistic 3D metallic embossed style, preserving likeness and fine features.',
+			prompt: 'Convert input photos into highly detailed silver pendant charms with a realistic 3D metallic embossed style, preserving likeness and fine features, using silvercharmstyle. output should be castable.',
 			num_inference_steps: 40,
 			guidance_scale: 2.5,
 			num_images: 1,
