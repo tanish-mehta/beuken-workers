@@ -238,18 +238,8 @@ export async function createShopifyProduct(
   publicGallery: boolean,
   env: { SHOPIFY_STORE_URL: string; SHOPIFY_ACCESS_TOKEN: string; ENVIRONMENT?: string }
 ): Promise<string> {
-  // Reference images for different charm types
-  const referenceImages = {
-    pendant: env.ENVIRONMENT === 'development' 
-      ? "https://pub-d8271b96bfbf4305ab13f5a6fe0e1035.r2.dev/size-reference-pendant.jpg"
-      : "https://pub-a60a2e7f4821493380ef9f646ab6b33c.r2.dev/size-reference-pendant.jpg",
-    charm: env.ENVIRONMENT === 'development'
-      ? "https://pub-d8271b96bfbf4305ab13f5a6fe0e1035.r2.dev/size-reference-charm.jpg"
-      : "https://pub-a60a2e7f4821493380ef9f646ab6b33c.r2.dev/size-reference-charm.jpg"
-  };
-  
-  // Default to pendant reference image
-  const sizeReferenceImageUrl = referenceImages.pendant;
+  // Shopify asset URLs for size reference images
+  const sizeReferenceImageUrl = "https://cdn.shopify.com/s/files/1/0723/9231/0981/files/reference_pendant.png?v=1753711473";
 
   // Shopify API version (update to the latest when needed)
   const API_VERSION = "2025-01";
