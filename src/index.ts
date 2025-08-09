@@ -291,8 +291,8 @@ export async function createShopifyProduct(
       variants: [
 		 {
           option1: "Sterling Silver",
-			 price: "99.99",
-		  compare_at_price: "149.99",
+			 price: "8999.99",
+		  compare_at_price: "1399.99",
           sku: `CHARM-SILVER-${crypto.randomUUID()}`,
           inventory_quantity: 1,
           inventory_management: "shopify",
@@ -305,8 +305,8 @@ export async function createShopifyProduct(
 		  },
 		          {
           option1: "14K Gold",
-			  price: "299.99",
-		  compare_at_price: "399.99", 
+			  price: "59999.99",
+		  compare_at_price: "69999.99", 
           sku: `CHARM-14K-${crypto.randomUUID()}`,
           inventory_quantity: 1,
           inventory_management: "shopify",
@@ -319,8 +319,8 @@ export async function createShopifyProduct(
 		  },
 		  {
           option1: "Gold Vermeil",
-			  price: "149.99",
-		  compare_at_price: "199.99",
+			  price: "14999.99",
+		  compare_at_price: "19999.99",
           sku: `CHARM-VERMEIL-${crypto.randomUUID()}`,
           inventory_quantity: 1,
           inventory_management: "shopify",
