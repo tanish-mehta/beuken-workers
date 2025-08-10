@@ -291,8 +291,8 @@ export async function createShopifyProduct(
       variants: [
 		 {
           option1: "Sterling Silver",
-			 price: "8999.99",
-		  compare_at_price: "1399.99",
+			 	price: "8999.99",
+		  compare_at_price: "13999.99",
           sku: `CHARM-SILVER-${crypto.randomUUID()}`,
           inventory_quantity: 1,
           inventory_management: "shopify",
