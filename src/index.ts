@@ -6,12 +6,21 @@ interface CreateCharmRequest {
 	inspiration?: string;
 }
 
-// Optimized helper function to convert File to base64 using streams
+// Safe helper function to convert File to base64 (handles large files)
 async function fileToBase64(file: File): Promise<string> {
 	const arrayBuffer = await file.arrayBuffer();
-	// Use more efficient base64 encoding with built-in methods
-	const base64String = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-	return base64String;
+	const bytes = new Uint8Array(arrayBuffer);
+	
+	// Process in chunks to avoid stack overflow on large images
+	const chunkSize = 8192; // 8KB chunks
+	let binary = '';
+	
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		const chunk = bytes.subarray(i, i + chunkSize);
+		binary += String.fromCharCode(...chunk);
+	}
+	
+	return btoa(binary);
 }
 
 // Helper function to upload image to a temporary storage (using a data URL for now)
@@ -199,12 +208,12 @@ async function generateSilverImage(imageBase64: string, env: Env): Promise<strin
 				body: JSON.stringify({
 					image_url: `data:image/jpeg;base64,${imageBase64}`,
 					prompt: 'Convert input photos into highly detailed silver pendant charms with a realistic 3D metallic embossed style, preserving likeness and fine features, using silvercharmstyle. output should be castable.',
-					num_inference_steps: 20, // Further reduced for speed
-					guidance_scale: 2.0, // Slightly lower for faster processing
+					num_inference_steps: 40, // Further reduced for speed
+					guidance_scale: 2.5, // Slightly lower for faster processing
 					num_images: 1,
 					output_format: 'jpeg', // JPEG is faster than PNG
-					width: 512, // Reduced resolution for faster processing
-					height: 512,
+					width: 1024, // Reduced resolution for faster processing
+					height: 1024,
 					loras: [{
 						path: 'https://v3.fal.media/files/koala/6BA9zqC6v0YIbZXy-5fb7_adapter_model.safetensors',
 						scale: 1.0
