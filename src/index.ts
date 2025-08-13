@@ -35,14 +35,14 @@ async function uploadImageToR2(imageBuffer: ArrayBuffer, filename: string, produ
 	try {
 		// Create the R2 bucket binding
 		const bucket = env.USER_UPLOADS_BUCKET;
-		console.log('🔍 Debug: bucket value:', bucket);
-		console.log('🔍 Debug: bucket type:', typeof bucket);
+		// console.log('🔍 Debug: bucket value:', bucket);
+		// console.log('🔍 Debug: bucket type:', typeof bucket);
 		
-		// Check if bucket is available
-		if (!bucket) {
-			console.log('⚠️ R2 bucket not available, using fallback URL');
-			return `https://pub-.r2.dev/${filename}`;
-		}
+		// // Check if bucket is available
+		// if (!bucket) {
+		// 	console.log('⚠️ R2 bucket not available, using fallback URL');
+		// 	return `https://pub-.r2.dev/${filename}`;
+		// }
 		
 		// Upload to R2 with metadata
 		await bucket.put(filename, imageBuffer, {
