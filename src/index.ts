@@ -33,17 +33,20 @@ async function uploadImageToStorage(imageBuffer: ArrayBuffer, filename: string):
 // Helper function to upload image to Cloudflare R2 storage
 async function uploadImageToR2(imageBuffer: ArrayBuffer, filename: string, productId: string, env: Env): Promise<string> {
 	try {
+		console.log(`🔄 Attempting to upload ${filename} to R2 (${imageBuffer.byteLength} bytes)...`);
+		
 		// Create the R2 bucket binding
 		const bucket = env.USER_UPLOADS_BUCKET;
-		// console.log('🔍 Debug: bucket value:', bucket);
-		// console.log('🔍 Debug: bucket type:', typeof bucket);
+		console.log('🔍 Debug: bucket value:', !!bucket);
+		console.log('🔍 Debug: bucket type:', typeof bucket);
 		
-		// // Check if bucket is available
-		// if (!bucket) {
-		// 	console.log('⚠️ R2 bucket not available, using fallback URL');
-		// 	return `https://pub-.r2.dev/${filename}`;
-		// }
+		// Check if bucket is available
+		if (!bucket) {
+			console.log('⚠️ R2 bucket not available, using fallback URL');
+			return `https://storage.example.com/uploads/${filename}`;
+		}
 		
+		console.log('📤 Uploading to R2...');
 		// Upload to R2 with metadata
 		await bucket.put(filename, imageBuffer, {
 			httpMetadata: {
@@ -56,6 +59,8 @@ async function uploadImageToR2(imageBuffer: ArrayBuffer, filename: string, produ
 			}
 		});
 		
+		console.log('✅ Successfully uploaded to R2!');
+		
 		// Return the public URL (you'll need to configure this in your R2 bucket settings)
 		// Replace with your actual R2 public domain
 		// For development, use the dev bucket URL
@@ -63,6 +68,8 @@ async function uploadImageToR2(imageBuffer: ArrayBuffer, filename: string, produ
 		const publicUrl = isDevelopment 
 			? `https://pub-d8271b96bfbf4305ab13f5a6fe0e1035.r2.dev/${filename}`  // TODO: Replace [DEV_BUCKET_ID] with your useruploads-dev bucket's public URL
 			: `https://pub-a60a2e7f4821493380ef9f646ab6b33c.r2.dev/${filename}`;
+		
+		console.log(`🌐 Generated public URL: ${publicUrl}`);
 		return publicUrl;
 	} catch (error) {
 		console.error('Error uploading to R2:', error);
