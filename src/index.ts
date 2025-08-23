@@ -61,13 +61,12 @@ async function uploadImageToR2(imageBuffer: ArrayBuffer, filename: string, produ
 		
 		console.log('✅ Successfully uploaded to R2!');
 		
-		// Return the public URL (you'll need to configure this in your R2 bucket settings)
-		// Replace with your actual R2 public domain
-		// For development, use the dev bucket URL
-		const isDevelopment = env.ENVIRONMENT === 'development';
-		const publicUrl = isDevelopment 
-			? `https://pub-d8271b96bfbf4305ab13f5a6fe0e1035.r2.dev/${filename}`  // TODO: Replace [DEV_BUCKET_ID] with your useruploads-dev bucket's public URL
-			: `https://pub-a60a2e7f4821493380ef9f646ab6b33c.r2.dev/${filename}`;
+		// TEMPORARY FIX: Since you're running npm run dev --remote, use dev bucket URL
+		// TODO: Implement proper environment detection later
+		console.log('🔍 Debug: env.ENVIRONMENT =', env.ENVIRONMENT);
+		console.log('🔍 Debug: using DEV bucket URL for testing');
+		
+		const publicUrl = `https://pub-a60a2e7f4821493380ef9f646ab6b33c.r2.dev/${filename}`; // dev bucket URL
 		
 		console.log(`🌐 Generated public URL: ${publicUrl}`);
 		return publicUrl;
@@ -88,22 +87,22 @@ async function generateProductNameAndStory(imageBase64: string, env: Env): Promi
 	const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
 	
 	try {
-		const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${env.GROQ_API_KEY}`,
-				'Content-Type': 'application/json',
-			},
+	const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+		method: 'POST',
+		headers: {
+			'Authorization': `Bearer ${env.GROQ_API_KEY}`,
+			'Content-Type': 'application/json',
+		},
 			signal: controller.signal,
-			body: JSON.stringify({
-				model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-				messages: [
-					{
-						role: 'user',
-						content: [
-							{
-								type: 'text',
-								text: `Analyze this image and provide:
+		body: JSON.stringify({
+			model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+			messages: [
+				{
+					role: 'user',
+					content: [
+						{
+							type: 'text',
+							text: `Analyze this image and provide:
 1. A short, catchy product name (maximum 3 words) for a jewelry charm that will be created from this image
 2. A compelling 2-3 sentence product description for the jewelry charm that will be made from this image
 
@@ -114,36 +113,36 @@ Return ONLY a valid JSON object with no markdown formatting, no code blocks, and
 }
 
 Make the product name descriptive and appealing for a jewelry store (examples: "Golden Memory", "Silver Dreams", "Athletic Spirit"). The description should highlight the beauty, craftsmanship, and appeal of the jewelry charm that will be created from this image.`
-							},
-							{
-								type: 'image_url',
-								image_url: {
-									url: `data:image/jpeg;base64,${imageBase64}`
-								}
+						},
+						{
+							type: 'image_url',
+							image_url: {
+								url: `data:image/jpeg;base64,${imageBase64}`
 							}
-						]
-					}
-				],
-				max_tokens: 200,
-				temperature: 0.7
-			})
-		});
+						}
+					]
+				}
+			],
+			max_tokens: 200,
+			temperature: 0.7
+		})
+	});
 		
 		clearTimeout(timeoutId);
 
-		if (!groqResponse.ok) {
-			const errorBody = await groqResponse.text();
-			console.error('Groq API Error Details:', {
-				status: groqResponse.status,
-				statusText: groqResponse.statusText,
-				body: errorBody
-			});
+	if (!groqResponse.ok) {
+		const errorBody = await groqResponse.text();
+		console.error('Groq API Error Details:', {
+			status: groqResponse.status,
+			statusText: groqResponse.statusText,
+			body: errorBody
+		});
 			throw new Error(`Groq API error: ${groqResponse.status}`);
-		}
+	}
 
-		const result = await groqResponse.json() as any;
-		const content = result.choices[0].message.content;
-		
+	const result = await groqResponse.json() as any;
+	const content = result.choices[0].message.content;
+	
 		// Parse JSON response
 		const parsed = JSON.parse(content);
 		const responseTime = Date.now() - startTime;
@@ -195,9 +194,9 @@ async function retryWithBackoff<T>(
 }
 
 // Optimized Fal LoRA API integration with retry and faster settings
-async function generateSilverImage(imageBase64: string, env: Env): Promise<string> {
+async function generateGoldImage(imageBase64: string, env: Env): Promise<string> {
 	const startTime = Date.now();
-	console.log('🥈 Calling Fal Flux Kontext LoRA API...');
+	console.log('🥇 Calling Fal Flux Kontext LoRA API for gold version...');
 	
 	return await retryWithBackoff(async () => {
 		// Increased timeout to 90s and optimized parameters for speed
@@ -205,45 +204,45 @@ async function generateSilverImage(imageBase64: string, env: Env): Promise<strin
 		const timeoutId = setTimeout(() => controller.abort(), 90000);
 		
 		try {
-			const falResponse = await fetch('https://fal.run/fal-ai/flux-kontext-lora', {
-				method: 'POST',
-				headers: {
-					'Authorization': `Key ${env.FAL_API_KEY}`,
-					'Content-Type': 'application/json',
-				},
+	const falResponse = await fetch('https://fal.run/fal-ai/flux-kontext-lora', {
+		method: 'POST',
+		headers: {
+			'Authorization': `Key ${env.FAL_API_KEY}`,
+			'Content-Type': 'application/json',
+		},
 				signal: controller.signal,
-				body: JSON.stringify({
-					image_url: `data:image/jpeg;base64,${imageBase64}`,
-					prompt: 'Convert input photos into highly detailed silver pendant charms with a realistic 3D metallic embossed style, preserving likeness and fine features, using silvercharmstyle. output should be castable.',
+		body: JSON.stringify({
+			image_url: `data:image/jpeg;base64,${imageBase64}`,
+					prompt: 'Convert input photos into highly detailed gold pendant charms with a realistic 3D metallic embossed style, preserving likeness and fine features, using silvercharmstyle. output should be castable. keep a plain white background.',
 					num_inference_steps: 40, // Further reduced for speed
 					guidance_scale: 2.5, // Slightly lower for faster processing
-					num_images: 1,
+			num_images: 1,
 					output_format: 'jpeg', // JPEG is faster than PNG
 					width: 1024, // Reduced resolution for faster processing
-					height: 1024,
-					loras: [{
-						path: 'https://v3.fal.media/files/koala/6BA9zqC6v0YIbZXy-5fb7_adapter_model.safetensors',
-						scale: 1.0
-					}]
-				})
-			});
+			height: 1024,
+			loras: [{
+				path: 'https://v3.fal.media/files/koala/6BA9zqC6v0YIbZXy-5fb7_adapter_model.safetensors',
+				scale: 1.0
+			}]
+		})
+	});
 			
 			clearTimeout(timeoutId);
 
-			if (!falResponse.ok) {
-				const errorBody = await falResponse.text();
-				console.error('Fal LoRA API Error:', {
-					status: falResponse.status,
-					statusText: falResponse.statusText,
-					body: errorBody
-				});
-				throw new Error(`Fal LoRA API error: ${falResponse.status} - ${errorBody}`);
-			}
+	if (!falResponse.ok) {
+		const errorBody = await falResponse.text();
+		console.error('Fal LoRA API Error:', {
+			status: falResponse.status,
+			statusText: falResponse.statusText,
+			body: errorBody
+		});
+		throw new Error(`Fal LoRA API error: ${falResponse.status} - ${errorBody}`);
+	}
 
-			const result = await falResponse.json() as any;
+	const result = await falResponse.json() as any;
 			const responseTime = Date.now() - startTime;
 			console.log(`⏱️ Fal LoRA API took: ${responseTime}ms`);
-			return result.images[0].url;
+	return result.images[0].url;
 			
 		} catch (error) {
 			clearTimeout(timeoutId);
@@ -252,10 +251,88 @@ async function generateSilverImage(imageBase64: string, env: Env): Promise<strin
 	}, 1); // Only 1 retry to avoid excessive delays
 }
 
-// Optimized Fal Flux Kontext API integration for gold image with retry and faster settings
-async function generateGoldImage(silverImageUrl: string, env: Env): Promise<string> {
+// Function to convert gold charm image URL to greyscale for silver charm using Cloudflare Image Transformation
+async function convertToGreyscale(goldCharmImageUrl: string, env: Env): Promise<string> {
 	const startTime = Date.now();
-	console.log('🥇 Calling Fal Flux Kontext API for gold version...');
+	console.log('🔘 Converting gold charm image to greyscale for silver charm using Cloudflare...');
+	
+	try {
+		let grayscaleArrayBuffer: ArrayBuffer;
+		
+		// Use Cloudflare image transformation URL (now working on api.beuken.ai)
+		try {
+			const transformationUrl = `https://api.beuken.ai/cdn-cgi/image/saturation=0,format=jpeg/${goldCharmImageUrl}`;
+			console.log(`🔄 Converting to grayscale using URL transformation: ${transformationUrl}`);
+			
+			const response = await fetch(transformationUrl);
+			
+			if (!response.ok) {
+				throw new Error(`Cloudflare URL transformation failed: ${response.status}`);
+			}
+			
+			grayscaleArrayBuffer = await response.arrayBuffer();
+			console.log(`✅ Cloudflare URL transformation successful: ${grayscaleArrayBuffer.byteLength} bytes`);
+			
+		} catch (urlError) {
+			console.log(`⚠️ URL transformation failed, trying Workers API: ${urlError}`);
+			
+			// Fallback: Try Workers cf.image API
+			try {
+				const response = await fetch(goldCharmImageUrl, {
+					cf: {
+						image: {
+							saturation: 0,
+							format: 'jpeg'
+						}
+					}
+				});
+				
+				if (!response.ok) {
+					throw new Error(`Cloudflare Workers API failed: ${response.status}`);
+				}
+				
+				grayscaleArrayBuffer = await response.arrayBuffer();
+				console.log(`✅ Cloudflare Workers API fallback successful: ${grayscaleArrayBuffer.byteLength} bytes`);
+				
+			} catch (workersError) {
+				console.log(`⚠️ Both methods failed, using original image: ${workersError}`);
+				
+				// Final fallback: Fetch original image
+				const response = await fetch(goldCharmImageUrl);
+				if (!response.ok) {
+					throw new Error(`Failed to fetch original image: ${response.status}`);
+				}
+				
+				grayscaleArrayBuffer = await response.arrayBuffer();
+				console.log(`📥 Using original image as fallback: ${grayscaleArrayBuffer.byteLength} bytes`);
+			}
+		}
+		
+		// Upload the processed image to R2
+		const randomId = crypto.randomUUID();
+		const silverFilename = `${randomId}-silver.jpg`;
+		const productId = Date.now().toString();
+		
+		const silverImageUrl = await uploadImageToR2(grayscaleArrayBuffer, silverFilename, productId, env);
+		
+		const responseTime = Date.now() - startTime;
+		console.log(`⏱️ Grayscale conversion and R2 upload took: ${responseTime}ms`);
+		
+		return silverImageUrl;
+		
+	} catch (error) {
+		console.warn('⚠️ Entire grayscale conversion failed, falling back to original image:', error);
+		// Ultimate fallback: return the original gold charm image URL
+		const responseTime = Date.now() - startTime;
+		console.log(`⏱️ Fallback to original image took: ${responseTime}ms`);
+		return goldCharmImageUrl;
+	}
+}
+
+// Optimized Fal Flux Kontext API integration for enhancing gold image with retry and faster settings  
+async function enhanceGoldImage(silverImageUrl: string, env: Env): Promise<string> {
+	const startTime = Date.now();
+	console.log('🥇 Calling Fal Flux Kontext API for gold enhancement...');
 	
 	return await retryWithBackoff(async () => {
 		// Increased timeout to 90s and optimized parameters for speed
@@ -263,41 +340,41 @@ async function generateGoldImage(silverImageUrl: string, env: Env): Promise<stri
 		const timeoutId = setTimeout(() => controller.abort(), 90000);
 		
 		try {
-			const falResponse = await fetch('https://fal.run/fal-ai/flux-pro/kontext/max', {
-				method: 'POST',
-				headers: {
-					'Authorization': `Key ${env.FAL_API_KEY}`,
-					'Content-Type': 'application/json',
-				},
+	const falResponse = await fetch('https://fal.run/fal-ai/flux-pro/kontext/max', {
+		method: 'POST',
+		headers: {
+			'Authorization': `Key ${env.FAL_API_KEY}`,
+			'Content-Type': 'application/json',
+		},
 				signal: controller.signal,
-				body: JSON.stringify({
-					image_url: silverImageUrl,
-					prompt: 'Convert the object in this image into a polished gold version. Maintain the exact shape, proportions, and details of the original object. Render it as shiny metallic gold with realistic reflections, highlights, and shadows. Ensure the gold looks like 24k jewelry-quality metal — smooth, glossy, and professional. Keep the background and composition unchanged.',
+		body: JSON.stringify({
+			image_url: silverImageUrl,
+			prompt: 'Convert the object in this image into a polished gold version. Maintain the exact shape, proportions, and details of the original object. Render it as shiny metallic gold with realistic reflections, highlights, and shadows. Ensure the gold looks like 24k jewelry-quality metal — smooth, glossy, and professional. Keep the background and composition unchanged.',
 					num_inference_steps: 20, // Further reduced for speed
 					guidance_scale: 2.0, // Slightly lower for faster processing  
-					num_images: 1,
+			num_images: 1,
 					output_format: 'jpeg', // JPEG is faster than PNG
 					width: 512, // Reduced resolution for faster processing
 					height: 512
-				})
-			});
+		})
+	});
 			
 			clearTimeout(timeoutId);
 
-			if (!falResponse.ok) {
-				const errorBody = await falResponse.text();
-				console.error('Fal Flux Kontext Max API Error:', {
-					status: falResponse.status,
-					statusText: falResponse.statusText,
-					body: errorBody
-				});
-				throw new Error(`Fal Flux Kontext Max API error: ${falResponse.status} - ${errorBody}`);
-			}
+	if (!falResponse.ok) {
+		const errorBody = await falResponse.text();
+		console.error('Fal Flux Kontext Max API Error:', {
+			status: falResponse.status,
+			statusText: falResponse.statusText,
+			body: errorBody
+		});
+		throw new Error(`Fal Flux Kontext Max API error: ${falResponse.status} - ${errorBody}`);
+	}
 
-			const result = await falResponse.json() as any;
+	const result = await falResponse.json() as any;
 			const responseTime = Date.now() - startTime;
 			console.log(`⏱️ Fal Flux Kontext Max API took: ${responseTime}ms`);
-			return result.images[0].url;
+	return result.images[0].url;
 			
 		} catch (error) {
 			clearTimeout(timeoutId);
@@ -499,14 +576,19 @@ export async function createShopifyProduct(
 async function handleCreateCharm(request: Request, env: Env): Promise<Response> {
 	const startTime = Date.now();
 	try {
+		console.log('🔍 Parsing form data...');
 		// Parse the form data
 		const formData = await request.formData();
+		console.log('🔍 Form data keys:', Array.from(formData.keys()));
 		
 		const image = formData.get('image') as File;
 		const email = formData.get('email') as string;
 		const publicGallery = formData.get('publicGallery') === 'true';
 		const story = formData.get('story') as string || '';
 		const inspiration = formData.get('inspiration') as string || '';
+
+		console.log('🔍 Validation - image:', !!image, 'email:', !!email);
+		console.log('🔍 Image type:', image?.type, 'size:', image?.size);
 
 		// Basic validation
 		if (!image || !email) {
@@ -533,19 +615,20 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 		console.log('🚀 Starting maximum parallel processing...');
 		const parallelStart = Date.now();
 		
-		// Cache the silver image promise to avoid duplicate API calls
-		const silverImagePromise = generateSilverImage(imageBase64, env);
+		// Cache the gold image promise to avoid duplicate API calls
+		const goldImagePromise = generateGoldImage(imageBase64, env);
 		
-		const [nameAndStory, silverImageUrl, goldImageUrl] = await Promise.all([
+		const [nameAndStory, goldImageUrl] = await Promise.all([
 			// Generate product name and story (if no story provided)
 			story ? 
 				Promise.resolve({ productName: 'Custom Charm', story }) : 
 				generateProductNameAndStory(imageBase64, env),
-			// Generate silver image using Fal LoRA (cached promise)
-			silverImagePromise,
-			// Generate gold image using the cached silver image promise
-			silverImagePromise.then(silverUrl => generateGoldImage(silverUrl, env))
+			// Generate gold image using Fal LoRA
+			goldImagePromise
 		]);
+		
+		// Generate silver image by converting gold to grayscale
+		const silverImageUrl = await convertToGreyscale(goldImageUrl, env);
 
 		console.log(`⏱️ Parallel AI processing took: ${Date.now() - parallelStart}ms`);
 		console.log('✅ Parallel processing completed. Generated:', {
@@ -562,18 +645,18 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 		
 		const [shopifyProductUrl, r2ImageUrl] = await Promise.all([
 			createShopifyProduct(
-				'', // No original image in Shopify product
-				silverImageUrl,
-				goldImageUrl,
-				nameAndStory.story,
-				nameAndStory.productName,
-				email,
-				publicGallery,
-				env
+			'', // No original image in Shopify product
+			silverImageUrl,
+			goldImageUrl,
+			nameAndStory.story,
+			nameAndStory.productName,
+			email,
+			publicGallery,
+			env
 			),
 			uploadImageToR2(originalImageBuffer, `${randomId}.jpg`, productId, env)
 		]);
-		
+
 		console.log(`⏱️ Final operations took: ${Date.now() - finalOpsStart}ms`);
 		console.log(`✅ Original image uploaded to R2: ${r2ImageUrl}`);
 
@@ -637,6 +720,8 @@ export default {
 
 		// Route handling
 		if (request.method === 'POST' && url.pathname === '/api/create-jewelry-charm') {
+			try {
+				console.log('📝 Processing request body...');
 			const response = await handleCreateCharm(request, env);
 			
 			// Add CORS headers to the response
@@ -645,6 +730,26 @@ export default {
 			response.headers.set('Access-Control-Allow-Headers', 'Content-Type');
 			
 			return response;
+			} catch (error) {
+				console.error('❌ Error in request handler:', error);
+				const errorResponse = new Response(
+					JSON.stringify({
+						success: false,
+						error: 'Request processing failed',
+						details: error instanceof Error ? error.message : 'Unknown error'
+					}),
+					{ 
+						status: 400,
+						headers: { 
+							'Content-Type': 'application/json',
+							'Access-Control-Allow-Origin': '*',
+							'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+							'Access-Control-Allow-Headers': 'Content-Type'
+						}
+					}
+				);
+				return errorResponse;
+			}
 		}
 
 		// Default route

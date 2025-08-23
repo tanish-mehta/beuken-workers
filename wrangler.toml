@@ -11,8 +11,8 @@ vars = { ENVIRONMENT = "development" }
 
 [[env.development.r2_buckets]]
 binding = "USER_UPLOADS_BUCKET"
-bucket_name = "useruploads-dev"
-preview_bucket_name = "useruploads-dev"
+bucket_name = "useruploads"
+preview_bucket_name = "useruploads"
 
 [env.development.vars]
 ENVIRONMENT = "development"
