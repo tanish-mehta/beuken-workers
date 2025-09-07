@@ -27,7 +27,7 @@
 	"vars": {
 		"ENVIRONMENT": "production",
 		"AI_GENERATION_URL": "https://ai-api.jewels-ai.com/generate-charm",
-		"SUPABASE_URL": "https://jewels-ai-prod.supabase.co",
+		"SUPABASE_URL": "https://meqhiwfvklahqvybmjdv.supabase.co",
 		"SHOPIFY_STORE_URL": "https://dp1qh8-eb.myshopify.com"
 	},
 
@@ -39,7 +39,7 @@
 			"vars": {
 				"ENVIRONMENT": "production",
 				"AI_GENERATION_URL": "https://ai-api.jewels-ai.com/generate-charm",
-				"SUPABASE_URL": "https://jewels-ai-prod.supabase.co",
+				"SUPABASE_URL": "https://meqhiwfvklahqvybmjdv.supabase.co",
 				"SHOPIFY_STORE_URL": "https://dp1qh8-eb.myshopify.com"
 			},
 			"r2_buckets": [

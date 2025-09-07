@@ -12,6 +12,7 @@ declare namespace Cloudflare {
 			| 'https://your-project.supabase.co'
 			| 'https://your-production-project.supabase.co'
 			| 'https://your-staging-project.supabase.co';
+		SUPABASE_SERVICE_ROLE_KEY: string;
 		SHOPIFY_STORE_URL:
 			| 'https://yourstore.myshopify.com'
 			| 'https://your-production-store.myshopify.com'

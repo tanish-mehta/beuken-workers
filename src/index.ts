@@ -1,3 +1,5 @@
+import { createClient } from '@supabase/supabase-js';
+
 interface CreateCharmRequest {
 	image: File;
 	email: string;
@@ -21,6 +23,66 @@ async function fileToBase64(file: File): Promise<string> {
 	}
 	
 	return btoa(binary);
+}
+
+function getSupabase(env: Env) {
+  console.log('🔗 Connecting to Supabase...');
+  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+    global: { fetch },
+  });
+}
+
+async function saveGenerationRow(env: Env, params: {
+  shopifyProductId: number;
+  email: string;
+  generationMethod: 'image_to_charm' | 'text_to_charm' | string;
+  productCategory: string; // 'pendant_charm' | 'bracelet_charm' | 'ring' | ...
+  inputImageUrl?: string | null;
+  inputPrompt?: string | null;
+  originalImageUrl?: string | null;
+  goldImageUrl?: string | null;
+  silverImageUrl?: string | null;
+  inspirationText?: string | null;
+  publicGallery?: boolean;
+  attributes?: Record<string, any>;
+}) {
+  console.log('💾 Saving generation data to Supabase for product:', params.shopifyProductId);
+  const supabase = getSupabase(env);
+
+  const assets = [
+    params.goldImageUrl     && { role: 'gold',     url: params.goldImageUrl },
+    params.silverImageUrl   && { role: 'silver',   url: params.silverImageUrl },
+    params.originalImageUrl && { role: 'original', url: params.originalImageUrl },
+  ].filter(Boolean);
+
+  console.log('📊 Generation data:', {
+    shopifyProductId: params.shopifyProductId,
+    email: params.email,
+    generationMethod: params.generationMethod,
+    assetsCount: assets.length,
+    publicGallery: params.publicGallery
+  });
+
+  const { error } = await supabase.from('product_generation').upsert({
+    shopify_product_id: params.shopifyProductId,
+    user_email: params.email.trim().toLowerCase(),
+    generation_method: params.generationMethod,
+    product_category: params.productCategory,
+    input_image_url: params.inputImageUrl ?? null,
+    input_prompt: params.inputPrompt ?? null,
+    assets,
+    attributes: params.attributes ?? {},
+    inspiration_text: params.inspirationText ?? null,
+    public_gallery: !!params.publicGallery,
+  }, { onConflict: 'shopify_product_id' });
+
+  if (error) {
+    console.error('❌ Supabase save failed:', error);
+    throw error;
+  }
+  
+  console.log('✅ Successfully saved generation data to Supabase');
 }
 
 // Helper function to upload image to a temporary storage (using a data URL for now)
@@ -395,7 +457,7 @@ export async function createShopifyProduct(
   email: string,
   publicGallery: boolean,
   env: { SHOPIFY_STORE_URL: string; SHOPIFY_ACCESS_TOKEN: string; ENVIRONMENT?: string }
-): Promise<string> {
+): Promise<{ url: string; productId: number; handle: string }> {
   // Shopify asset URLs for size reference images
   const sizeReferenceImageUrl = "https://cdn.shopify.com/s/files/1/0723/9231/0981/files/reference_pendant.png?v=1753711473";
 
@@ -568,8 +630,12 @@ export async function createShopifyProduct(
     }
   }
 
-  // 4. Return product URL
-  return `${env.SHOPIFY_STORE_URL.replace("/admin", "")}/products/${product.handle}`;
+  // 4. Return product data
+  return {
+    url: `${env.SHOPIFY_STORE_URL.replace("/admin", "")}/products/${product.handle}`,
+    productId: product.id,
+    handle: product.handle
+  };
 }
 
 
@@ -643,7 +709,7 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 		const productId = Date.now().toString();
 		const randomId = crypto.randomUUID();
 		
-		const [shopifyProductUrl, r2ImageUrl] = await Promise.all([
+		const [createdProduct, r2ImageUrl] = await Promise.all([
 			createShopifyProduct(
 			'', // No original image in Shopify product
 			silverImageUrl,
@@ -660,13 +726,28 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 		console.log(`⏱️ Final operations took: ${Date.now() - finalOpsStart}ms`);
 		console.log(`✅ Original image uploaded to R2: ${r2ImageUrl}`);
 
+		// Save generation data to Supabase
+		await saveGenerationRow(env, {
+			shopifyProductId: createdProduct.productId,
+			email,
+			generationMethod: 'image_to_charm',
+			productCategory: 'pendant_charm',
+			inputImageUrl: r2ImageUrl,
+			inputPrompt: null,
+			originalImageUrl: r2ImageUrl,
+			goldImageUrl,
+			silverImageUrl,
+			inspirationText: inspiration || null,
+			publicGallery
+		});
+
 		const totalTime = Date.now() - startTime;
 		console.log(`⏱️ TOTAL REQUEST TIME: ${totalTime}ms`);
 
 		// Step 4: Return success response with timing data
 		return Response.json({
 			success: true,
-			productUrl: shopifyProductUrl,
+			productUrl: createdProduct.url,
 			data: {
 				originalImageUrl: r2ImageUrl,
 				silverImageUrl,
