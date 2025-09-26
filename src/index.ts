@@ -8,6 +8,104 @@ interface CreateCharmRequest {
 	inspiration?: string;
 }
 
+// Groq Vision: generate productName, story, and a tailored Fal prompt
+async function generateGroqVisionPrompt(
+  imageBase64: string,
+  env: Env
+): Promise<{ productName: string; story: string; prompt: string }> {
+  const startTime = Date.now();
+  console.log('🎯 Generating product name, story, and prompt with Groq Vision...');
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+  try {
+    // Keep the same default model as previously used elsewhere
+    const model = (env as any).GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct';
+    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${(env as any).GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Analyze the input image and return ONLY a valid JSON object with keys productName, story, and prompt. Do not include markdown, code fences, or explanations.
+
+For productName and story:
+- productName: Short, catchy (max 3 words) for a jewelry charm derived from this image.
+- story: 2–3 sentences describing a compelling jewelry product description that highlights beauty, craftsmanship, and appeal of the charm created from this image.
+
+For prompt (strict format):
+- Give a basic, short description of what needs to be converted into the charm (avoid any color or material words; include any essential visible text that needs to be on the charm body).
+- Then produce the prompt exactly in this format using that description:
+  convert this image of <basic short description> into a highly detailed gold pendant charm with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. no blurriness, no distortion.
+
+Return JSON format only:
+{
+  "productName": "Short, catchy (max 3 words)",
+  "story": "2–3 sentences product description",
+  "prompt": "convert this image of <basic description of image> into a highly detailed gold pendant charm with a realistic 3D metallic  style, preserving likeness and fine features. output should be castable. no blurriness, no distortion."
+}`
+              },
+              {
+                type: 'image_url',
+                image_url: { url: `data:image/jpeg;base64,${imageBase64}` }
+              }
+            ]
+          }
+        ],
+        max_tokens: 400,
+        temperature: 0.4
+      })
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!groqResponse.ok) {
+      const errorBody = await groqResponse.text();
+      console.error('Groq Vision API Error Details:', {
+        status: groqResponse.status,
+        statusText: groqResponse.statusText,
+        body: errorBody
+      });
+      throw new Error(`Groq Vision API error: ${groqResponse.status}`);
+    }
+
+    const result = await groqResponse.json() as any;
+    const content = result.choices?.[0]?.message?.content;
+
+    console.log('🧠 Groq Vision raw content:', content);
+
+    const parsed = parseJsonFromContent(String(content));
+    const responseTime = Date.now() - startTime;
+    console.log(`⏱️ Groq Vision took: ${responseTime}ms`);
+
+    const productName = parsed?.productName || 'Custom Charm';
+    const story = parsed?.story || 'A beautiful memory captured in a charm, ready to be treasured forever.';
+    const prompt = parsed?.prompt || 'Convert the subject to a detailed 24k jewelry-quality gold pendant charm with realistic metallic relief, preserving likeness and fine features. Use a solid white background with no shadows or gradients.';
+
+    return { productName, story, prompt };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Groq Vision failed after ${responseTime}ms:`, error);
+    // Safe fallbacks
+    return {
+      productName: 'Custom Charm',
+      story: 'A beautiful memory captured in a charm, ready to be treasured forever.',
+      prompt: 'Convert the subject to a detailed 24k jewelry-quality gold pendant charm with realistic metallic relief, preserving likeness and fine features. Use a solid white background with no shadows or gradients.'
+    };
+  }
+}
+
 // Safe helper function to convert File to base64 (handles large files)
 async function fileToBase64(file: File): Promise<string> {
 	const arrayBuffer = await file.arrayBuffer();
@@ -31,6 +129,44 @@ function getSupabase(env: Env) {
     auth: { persistSession: false },
     global: { fetch },
   });
+}
+
+// Helper to robustly parse JSON that may be wrapped in Markdown code fences
+function parseJsonFromContent(content: string): any {
+  if (typeof content !== 'string') return content;
+  const raw = content.trim();
+
+  // 1) Try direct JSON first
+  try { return JSON.parse(raw); } catch {}
+
+  // 2) Strip ```json ... ``` or ``` ... ```
+  try {
+    const withoutFences = raw
+      .replace(/^```[a-zA-Z0-9_-]*\s*/i, '')
+      .replace(/\s*```\s*$/i, '')
+      .trim();
+    return JSON.parse(withoutFences);
+  } catch {}
+
+  // 3) Extract object substring
+  try {
+    const startObj = raw.indexOf('{');
+    const endObj = raw.lastIndexOf('}');
+    if (startObj !== -1 && endObj !== -1 && endObj > startObj) {
+      return JSON.parse(raw.slice(startObj, endObj + 1));
+    }
+  } catch {}
+
+  // 4) Extract array substring
+  try {
+    const startArr = raw.indexOf('[');
+    const endArr = raw.lastIndexOf(']');
+    if (startArr !== -1 && endArr !== -1 && endArr > startArr) {
+      return JSON.parse(raw.slice(startArr, endArr + 1));
+    }
+  } catch {}
+
+  throw new Error('Unable to parse JSON from Groq content');
 }
 
 async function saveGenerationRow(env: Env, params: {
@@ -204,9 +340,23 @@ Make the product name descriptive and appealing for a jewelry store (examples: "
 
 	const result = await groqResponse.json() as any;
 	const content = result.choices[0].message.content;
+
+	// Log Groq response content and minimal metadata for debugging
+	try {
+		console.log('🧠 Groq API raw response (trimmed):', {
+			id: result.id,
+			model: result.model,
+			created: result.created,
+			choicesCount: Array.isArray(result.choices) ? result.choices.length : 0,
+			content
+		});
+	} catch (_) {
+		// ignore logging issues
+	}
 	
-		// Parse JSON response
-		const parsed = JSON.parse(content);
+		// Parse JSON response (tolerates fenced markdown)
+		const parsed = parseJsonFromContent(String(content));
+		console.log('🧠 Groq parsed JSON:', parsed);
 		const responseTime = Date.now() - startTime;
 		console.log(`⏱️ Groq API took: ${responseTime}ms`);
 		
@@ -256,9 +406,13 @@ async function retryWithBackoff<T>(
 }
 
 // Optimized Fal LoRA API integration with retry and faster settings
-async function generateGoldImage(imageBase64: string, env: Env): Promise<string> {
+async function generateGoldImage(imageBase64: string, env: Env, prompt?: string): Promise<string> {
 	const startTime = Date.now();
 	console.log('🥇 Calling Fal Flux Kontext LoRA API for gold version...');
+
+	const defaultPrompt = 'Convert input photos into highly detailed gold pendant charms with a realistic 3D metallic embossed style, preserving likeness and fine features, using silvercharmstyle. output should be castable. keep a plain white background.';
+	const finalPrompt = (prompt && prompt.trim().length > 0) ? prompt : defaultPrompt;
+	console.log('📝 Fal prompt (preview):', finalPrompt.slice(0, 160));
 	
 	return await retryWithBackoff(async () => {
 		// Increased timeout to 90s and optimized parameters for speed
@@ -275,7 +429,7 @@ async function generateGoldImage(imageBase64: string, env: Env): Promise<string>
 				signal: controller.signal,
 		body: JSON.stringify({
 			image_url: `data:image/jpeg;base64,${imageBase64}`,
-					prompt: 'Convert input photos into highly detailed gold pendant charms with a realistic 3D metallic embossed style, preserving likeness and fine features, using silvercharmstyle. output should be castable. keep a plain white background.',
+					prompt: finalPrompt,
 					num_inference_steps: 40, // Further reduced for speed
 					guidance_scale: 2.5, // Slightly lower for faster processing
 			num_images: 1,
@@ -677,27 +831,27 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 		]);
 		console.log(`⏱️ File processing took: ${Date.now() - fileProcessingStart}ms`);
 
-		// Step 2: Maximum parallelization - start all independent operations at once
-		console.log('🚀 Starting maximum parallel processing...');
-		const parallelStart = Date.now();
-		
-		// Cache the gold image promise to avoid duplicate API calls
-		const goldImagePromise = generateGoldImage(imageBase64, env);
-		
-		const [nameAndStory, goldImageUrl] = await Promise.all([
-			// Generate product name and story (if no story provided)
-			story ? 
-				Promise.resolve({ productName: 'Custom Charm', story }) : 
-				generateProductNameAndStory(imageBase64, env),
-			// Generate gold image using Fal LoRA
-			goldImagePromise
-		]);
-		
-		// Generate silver image by converting gold to grayscale
+		// Step 2: Sequential AI processing - Groq Vision → Fal → grayscale
+		console.log('🚶 Starting sequential AI processing with Groq Vision...');
+		const aiProcessingStart = Date.now();
+
+		// 2a) Get Groq Vision prompt (and name/story)
+		const groqVision = await generateGroqVisionPrompt(imageBase64, env);
+		console.log('📝 Using Groq Vision prompt (preview):', groqVision.prompt.slice(0, 160));
+
+		// Keep external behavior: if user provided a story, keep it and default productName to 'Custom Charm'
+		const nameAndStory = story
+			? { productName: 'Custom Charm', story }
+			: { productName: groqVision.productName, story: groqVision.story };
+
+		// 2b) Generate gold image using Fal with Groq prompt
+		const goldImageUrl = await generateGoldImage(imageBase64, env, groqVision.prompt);
+
+		// 2c) Convert gold to grayscale for silver
 		const silverImageUrl = await convertToGreyscale(goldImageUrl, env);
 
-		console.log(`⏱️ Parallel AI processing took: ${Date.now() - parallelStart}ms`);
-		console.log('✅ Parallel processing completed. Generated:', {
+		console.log(`⏱️ Sequential AI processing took: ${Date.now() - aiProcessingStart}ms`);
+		console.log('✅ Sequential processing completed. Generated:', {
 			productName: nameAndStory.productName,
 			storyLength: nameAndStory.story.length,
 			silverImageGenerated: !!silverImageUrl,
@@ -733,7 +887,7 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 			generationMethod: 'image_to_charm',
 			productCategory: 'pendant_charm',
 			inputImageUrl: r2ImageUrl,
-			inputPrompt: null,
+			inputPrompt: groqVision.prompt || null,
 			originalImageUrl: r2ImageUrl,
 			goldImageUrl,
 			silverImageUrl,
@@ -762,7 +916,7 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 				totalTimeMs: totalTime,
 				breakdown: {
 					fileProcessing: fileProcessingStart,
-					aiProcessing: parallelStart,
+					aiProcessing: aiProcessingStart,
 					finalOperations: finalOpsStart
 				}
 			}
