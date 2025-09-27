@@ -44,7 +44,7 @@ For productName and story:
 - story: 2–3 sentences describing a compelling jewelry product description that highlights beauty, craftsmanship, and appeal of the charm created from this image.
 
 For prompt (strict format):
-- Give a basic, short description of what needs to be converted into the charm (avoid any color or material words; include any essential visible text that needs to be on the charm body).
+- Give a basic, short description of what needs to be converted into the charm using only nouns and count (e.g., "a dog", "two men", "a car", "a couple"). Do NOT include any colors, materials, sizes, or adjectives.
 - Then produce the prompt exactly in this format using that description:
   convert this image of <basic short description> into a highly detailed gold pendant charm with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. no blurriness, no distortion.
 
@@ -52,7 +52,7 @@ Return JSON format only:
 {
   "productName": "Short, catchy (max 3 words)",
   "story": "2–3 sentences product description",
-  "prompt": "convert this image of <basic description of image> into a highly detailed gold pendant charm with a realistic 3D metallic  style, preserving likeness and fine features. output should be castable. no blurriness, no distortion."
+  "prompt": "convert this image of <basic short description> into a highly detailed gold pendant charm with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. no blurriness, no distortion."
 }`
               },
               {
@@ -613,7 +613,7 @@ export async function createShopifyProduct(
   env: { SHOPIFY_STORE_URL: string; SHOPIFY_ACCESS_TOKEN: string; ENVIRONMENT?: string }
 ): Promise<{ url: string; productId: number; handle: string }> {
   // Shopify asset URLs for size reference images
-  const sizeReferenceImageUrl = "https://cdn.shopify.com/s/files/1/0723/9231/0981/files/reference_pendant.png?v=1753711473";
+  const sizeReferenceImageUrl = "https://pub-a60a2e7f4821493380ef9f646ab6b33c.r2.dev/Untitled-1.jpg";
 
   // Shopify API version (update to the latest when needed)
   const API_VERSION = "2025-01";
@@ -663,10 +663,24 @@ export async function createShopifyProduct(
         { src: sizeReferenceImageUrl, alt: "Size Reference", position: 3 },
       ],
       variants: [
-		 {
+		  {
+          option1: "Brass & Resin",
+			 	price: "3999.99",
+		  compare_at_price: "5999.99",
+          sku: `CHARM-BRASS-${crypto.randomUUID()}`,
+          inventory_quantity: 1,
+          inventory_management: "shopify",
+          inventory_policy: "deny",
+          fulfillment_service: "manual",
+          weight: 0.1,
+          weight_unit: "oz",
+          requires_shipping: true,
+          taxable: true,
+		  },
+		  {
           option1: "Sterling Silver",
-			 	price: "8999.99",
-		  compare_at_price: "13999.99",
+			 	price: "5999.99",
+		  compare_at_price: "8999.99",
           sku: `CHARM-SILVER-${crypto.randomUUID()}`,
           inventory_quantity: 1,
           inventory_management: "shopify",
@@ -709,7 +723,7 @@ export async function createShopifyProduct(
       options: [
         {
           name: "Material",
-          values: ["Sterling Silver", "Gold Vermeil", "14K Gold"],
+          values: ["Brass & Resin", "Sterling Silver", "Gold Vermeil", "14K Gold"],
         },
       ],
     },
@@ -730,6 +744,12 @@ export async function createShopifyProduct(
   const goldVariant = product.variants.find(v => v.option1 === "14K Gold");
   const silverVariant = product.variants.find(v => v.option1 === "Sterling Silver");
   const vermeilVariant = product.variants.find(v => v.option1 === "Gold Vermeil");
+  const brassResinVariant = product.variants.find(v => v.option1 === "Brass & Resin");
+
+  // Group gold-like variants (Gold, Vermeil, Brass & Resin) to share the same image
+  const goldGroupVariantIds = [goldVariant, vermeilVariant, brassResinVariant]
+    .filter(Boolean)
+    .map((v: any) => v.id);
 
   // Update images to be variant-specific
   const updatedImages = [
@@ -743,7 +763,7 @@ export async function createShopifyProduct(
       src: goldImageUrl, 
       alt: "Gold Charm Version", 
       position: 2,
-      variant_ids: goldVariant && vermeilVariant ? [goldVariant.id, vermeilVariant.id] : goldVariant ? [goldVariant.id] : undefined
+      variant_ids: goldGroupVariantIds.length ? goldGroupVariantIds : undefined
     },
     { 
       src: sizeReferenceImageUrl, 
