@@ -16,7 +16,7 @@
 		{
 			"binding": "USER_UPLOADS_BUCKET",
 			"bucket_name": "useruploads",
-			"preview_bucket_name": "useruploads-dev"
+			"preview_bucket_name": "useruploads"
 		}
 	],
 
