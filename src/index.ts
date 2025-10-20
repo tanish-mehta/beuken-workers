@@ -565,13 +565,14 @@ async function enhanceGoldImage(silverImageUrl: string, env: Env): Promise<strin
 				signal: controller.signal,
 		body: JSON.stringify({
 			image_url: silverImageUrl,
-			prompt: 'Convert the object in this image into a polished gold version. Maintain the exact shape, proportions, and details of the original object. Render it as shiny metallic gold with realistic reflections, highlights, and shadows. Ensure the gold looks like 24k jewelry-quality metal — smooth, glossy, and professional. Keep the background and composition unchanged.',
-					num_inference_steps: 20, // Further reduced for speed
-					guidance_scale: 2.0, // Slightly lower for faster processing  
+			prompt: 'Convert the object in this image into a polished gold version. Maintain the exact shape, proportions, and details of the original object. Render it as shiny metallic gold with realistic reflections, highlights, and shadows. Ensure the gold looks like 24k jewelry-quality metal — smooth, glossy, and professional. The quality of the input may be a bit unclear so please properly transfer the accurate details.',
+					num_inference_steps: 40, // Further reduced for speed
+					guidance_scale: 2.5, // Slightly lower for faster processing  
 			num_images: 1,
 					output_format: 'jpeg', // JPEG is faster than PNG
-					width: 512, // Reduced resolution for faster processing
-					height: 512
+					width: 1024, // Reduced resolution for faster processing
+			height: 1024,
+					 resolution_mode: '1:1',
 		})
 	});
 			
