@@ -20,6 +20,8 @@
 		"wrangler": "^4.26.0"
 	},
 	"dependencies": {
-		"@supabase/supabase-js": "^2.56.0"
+		"@supabase/supabase-js": "^2.56.0",
+		"jpeg-js": "^0.4.4",
+		"upng-js": "^2.1.0"
 	}
 }

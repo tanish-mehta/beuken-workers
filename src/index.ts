@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import * as JPEG from 'jpeg-js';
+import UPNG from 'upng-js';
 
 interface CreateCharmRequest {
 	image: File;
@@ -121,6 +123,119 @@ async function fileToBase64(file: File): Promise<string> {
 	}
 	
 	return btoa(binary);
+}
+
+// Helper to convert ArrayBuffer to base64
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+	const bytes = new Uint8Array(buffer);
+	const chunkSize = 8192;
+	let binary = '';
+	
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		const chunk = bytes.subarray(i, i + chunkSize);
+		binary += String.fromCharCode(...chunk);
+	}
+	
+	return btoa(binary);
+}
+
+// Bilinear interpolation resize helper
+function bilinearResize(srcData: Uint8ClampedArray, srcWidth: number, srcHeight: number, dstWidth: number, dstHeight: number): Uint8ClampedArray {
+	const dstData = new Uint8ClampedArray(dstWidth * dstHeight * 4);
+	const xRatio = srcWidth / dstWidth;
+	const yRatio = srcHeight / dstHeight;
+	
+	for (let dstY = 0; dstY < dstHeight; dstY++) {
+		for (let dstX = 0; dstX < dstWidth; dstX++) {
+			const srcX = dstX * xRatio;
+			const srcY = dstY * yRatio;
+			
+			const srcX0 = Math.floor(srcX);
+			const srcY0 = Math.floor(srcY);
+			const srcX1 = Math.min(srcX0 + 1, srcWidth - 1);
+			const srcY1 = Math.min(srcY0 + 1, srcHeight - 1);
+			
+			const xWeight = srcX - srcX0;
+			const yWeight = srcY - srcY0;
+			
+			const dstIdx = (dstY * dstWidth + dstX) * 4;
+			
+			for (let c = 0; c < 4; c++) {
+				const tl = srcData[(srcY0 * srcWidth + srcX0) * 4 + c];
+				const tr = srcData[(srcY0 * srcWidth + srcX1) * 4 + c];
+				const bl = srcData[(srcY1 * srcWidth + srcX0) * 4 + c];
+				const br = srcData[(srcY1 * srcWidth + srcX1) * 4 + c];
+				
+				const top = tl + (tr - tl) * xWeight;
+				const bottom = bl + (br - bl) * xWeight;
+				dstData[dstIdx + c] = top + (bottom - top) * yWeight;
+			}
+		}
+	}
+	
+	return dstData;
+}
+
+// Resize image to 1024x1024 using Pure JS - works in Workers
+async function resizeImageTo1024(buffer: ArrayBuffer, imageType: string): Promise<string> {
+	console.log('🖼️ Resizing image to 1024x1024 using Pure JS...');
+	const startTime = Date.now();
+	
+	try {
+		const uint8Array = new Uint8Array(buffer);
+		let imageData: { data: Uint8ClampedArray; width: number; height: number };
+		
+		// Decode based on image type
+		if (imageType.includes('png')) {
+			// Decode PNG using upng-js (pure JS, Workers-compatible)
+			const png = UPNG.decode(uint8Array.buffer);
+			const rgba = UPNG.toRGBA8(png)[0]; // Get first frame as RGBA
+			imageData = {
+				data: new Uint8ClampedArray(rgba),
+				width: png.width,
+				height: png.height
+			};
+		} else {
+			// Default to JPEG (handles JPEG, JPG, and most other formats)
+			const decoded = JPEG.decode(uint8Array, { useTArray: true });
+			imageData = {
+				data: new Uint8ClampedArray(decoded.data.buffer),
+				width: decoded.width,
+				height: decoded.height
+			};
+		}
+		
+		console.log(`📐 Original size: ${imageData.width}x${imageData.height}`);
+		
+		// Resize to exactly 1024x1024 (stretch, no aspect ratio preservation)
+		const resizedData = bilinearResize(
+			imageData.data,
+			imageData.width,
+			imageData.height,
+			1024,
+			1024
+		);
+		
+		// Encode back to JPEG
+		const encoded = JPEG.encode({
+			data: resizedData,
+			width: 1024,
+			height: 1024
+		}, 95);
+		
+		// Convert to base64
+		const base64 = arrayBufferToBase64(encoded.data.buffer as ArrayBuffer);
+		
+		const responseTime = Date.now() - startTime;
+		console.log(`⏱️ Image resize took: ${responseTime}ms (resized to 1024x1024)`);
+		
+		return base64;
+	} catch (error) {
+		console.error('❌ Error resizing image:', error);
+		console.warn('⚠️ Falling back to original image');
+		// Fallback: use original image
+		return arrayBufferToBase64(buffer);
+	}
 }
 
 function getSupabase(env: Env) {
@@ -844,20 +959,21 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 
 		console.log(`⏱️ Request started at ${startTime}ms for ${email}`);
 
-		// Step 1: Parallel file processing - convert to base64 and buffer simultaneously
+		// Step 1: File processing - resize to 1024x1024 for model, keep original for storage
 		const fileProcessingStart = Date.now();
-		const [imageBase64, originalImageBuffer] = await Promise.all([
-			fileToBase64(image),
-			image.arrayBuffer()
-		]);
+		const originalImageBuffer = await image.arrayBuffer();
+		
+		// Resize image to 1024x1024 for AI model (WASM-powered, fast!)
+		const resizedImageBase64 = await resizeImageTo1024(originalImageBuffer, image.type);
+		
 		console.log(`⏱️ File processing took: ${Date.now() - fileProcessingStart}ms`);
 
 		// Step 2: Sequential AI processing - Groq Vision → Fal → grayscale
 		console.log('🚶 Starting sequential AI processing with Groq Vision...');
 		const aiProcessingStart = Date.now();
 
-		// 2a) Get Groq Vision prompt (and name/story)
-		const groqVision = await generateGroqVisionPrompt(imageBase64, env);
+		// 2a) Get Groq Vision prompt (and name/story) using resized image
+		const groqVision = await generateGroqVisionPrompt(resizedImageBase64, env);
 		console.log('📝 Using Groq Vision prompt (preview):', groqVision.prompt.slice(0, 160));
 
 		// Keep external behavior: if user provided a story, keep it and default productName to 'Custom Charm'
@@ -865,8 +981,8 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 			? { productName: 'Custom Charm', story }
 			: { productName: groqVision.productName, story: groqVision.story };
 
-		// 2b) Generate gold image using Fal with Groq prompt
-		const goldImageUrl = await generateGoldImage(imageBase64, env, groqVision.prompt);
+		// 2b) Generate gold image using Fal with resized image and Groq prompt
+		const goldImageUrl = await generateGoldImage(resizedImageBase64, env, groqVision.prompt);
 
 		// 2c) Convert gold to grayscale for silver
 		const silverImageUrl = await convertToGreyscale(goldImageUrl, env);
