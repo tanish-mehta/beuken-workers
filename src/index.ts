@@ -49,12 +49,14 @@ For prompt (strict format):
 - Give a basic, short description of what needs to be converted into the charm using only nouns and count (e.g., "a dog", "two men", "a car", "a couple"). Do NOT include any colors, materials, sizes, or adjectives.
 - Then produce the prompt exactly in this format using that description:
   convert this image of <basic short description> into a highly detailed gold pendant charm with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. no blurriness, no distortion.
+- IMPORTANT: If the image subject is a dog or cat, make this the prompt: Convert this input photo of dog/cat into a highly detailed gold pendant charms with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. the animals eyes, accessories etc should all be gold. dont let any blackness be on the charm the fur should be fluffy looking like the input image. but the fur should be looking animated, so not hyper realistic. if the animal is not in a charm position, reorient it slightly so it becomes a nice charm. keep eyes gold. make the dog look super cute. dont make the fur very fine. the fur needs to look longer and animated
+
 
 Return JSON format only:
 {
   "productName": "Short, catchy (max 3 words)",
   "story": "2–3 sentences product description",
-  "prompt": "convert this image of <basic short description> into a highly detailed gold pendant charm with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. no blurriness, no distortion."
+  "prompt": "convert this image of <basic short . eg, man, woman holding a dog, book, scenery, etc> into a highly detailed gold pendant charm with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. no blurriness, no distortion."
 }`
               },
               {
@@ -176,9 +178,9 @@ function bilinearResize(srcData: Uint8ClampedArray, srcWidth: number, srcHeight:
 	return dstData;
 }
 
-// Resize image to 1024x1024 using Pure JS - works in Workers
+// Resize image to fit within 1024x1024 with aspect ratio preserved and padding
 async function resizeImageTo1024(buffer: ArrayBuffer, imageType: string): Promise<string> {
-	console.log('🖼️ Resizing image to 1024x1024 using Pure JS...');
+	console.log('🖼️ Resizing image to 1024x1024 with aspect ratio preservation...');
 	const startTime = Date.now();
 	
 	try {
@@ -207,27 +209,76 @@ async function resizeImageTo1024(buffer: ArrayBuffer, imageType: string): Promis
 		
 		console.log(`📐 Original size: ${imageData.width}x${imageData.height}`);
 		
-		// Resize to exactly 1024x1024 (stretch, no aspect ratio preservation)
+		// Calculate scaling to fit within 1024x1024 while maintaining aspect ratio
+		const targetSize = 1024;
+		const aspectRatio = imageData.width / imageData.height;
+		
+		let scaledWidth: number;
+		let scaledHeight: number;
+		
+		if (imageData.width > imageData.height) {
+			// Landscape: width is the limiting factor
+			scaledWidth = targetSize;
+			scaledHeight = Math.round(targetSize / aspectRatio);
+		} else {
+			// Portrait or square: height is the limiting factor
+			scaledHeight = targetSize;
+			scaledWidth = Math.round(targetSize * aspectRatio);
+		}
+		
+		console.log(`📐 Scaled size (before padding): ${scaledWidth}x${scaledHeight}`);
+		
+		// Resize to scaled dimensions (maintains aspect ratio)
 		const resizedData = bilinearResize(
 			imageData.data,
 			imageData.width,
 			imageData.height,
-			1024,
-			1024
+			scaledWidth,
+			scaledHeight
 		);
+		
+		// Create 1024x1024 canvas with white background
+		const finalData = new Uint8ClampedArray(targetSize * targetSize * 4);
+		
+		// Fill with white (255, 255, 255, 255)
+		for (let i = 0; i < finalData.length; i += 4) {
+			finalData[i] = 255;     // R
+			finalData[i + 1] = 255; // G
+			finalData[i + 2] = 255; // B
+			finalData[i + 3] = 255; // A
+		}
+		
+		// Calculate padding offsets to center the image
+		const offsetX = Math.floor((targetSize - scaledWidth) / 2);
+		const offsetY = Math.floor((targetSize - scaledHeight) / 2);
+		
+		console.log(`📐 Padding offsets: X=${offsetX}, Y=${offsetY}`);
+		
+		// Copy resized image data into center of padded canvas
+		for (let y = 0; y < scaledHeight; y++) {
+			for (let x = 0; x < scaledWidth; x++) {
+				const srcIdx = (y * scaledWidth + x) * 4;
+				const dstIdx = ((y + offsetY) * targetSize + (x + offsetX)) * 4;
+				
+				finalData[dstIdx] = resizedData[srcIdx];         // R
+				finalData[dstIdx + 1] = resizedData[srcIdx + 1]; // G
+				finalData[dstIdx + 2] = resizedData[srcIdx + 2]; // B
+				finalData[dstIdx + 3] = resizedData[srcIdx + 3]; // A
+			}
+		}
 		
 		// Encode back to JPEG
 		const encoded = JPEG.encode({
-			data: resizedData,
-			width: 1024,
-			height: 1024
+			data: finalData,
+			width: targetSize,
+			height: targetSize
 		}, 95);
 		
 		// Convert to base64
 		const base64 = arrayBufferToBase64(encoded.data.buffer as ArrayBuffer);
 		
 		const responseTime = Date.now() - startTime;
-		console.log(`⏱️ Image resize took: ${responseTime}ms (resized to 1024x1024)`);
+		console.log(`⏱️ Image resize with padding took: ${responseTime}ms (final size: ${targetSize}x${targetSize})`);
 		
 		return base64;
 	} catch (error) {
@@ -545,7 +596,7 @@ async function generateGoldImage(imageBase64: string, env: Env, prompt?: string)
 		body: JSON.stringify({
 			image_url: `data:image/jpeg;base64,${imageBase64}`,
 					prompt: finalPrompt,
-					num_inference_steps: 40, // Further reduced for speed
+					num_inference_steps: 50, // Further reduced for speed
 					guidance_scale: 2.5, // Slightly lower for faster processing
 			num_images: 1,
 					output_format: 'jpeg', // JPEG is faster than PNG
