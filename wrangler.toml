@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2025-01-25"
 compatibility_flags = ["nodejs_compat"]
 
+# Use Unbound usage model for CPU-intensive image processing
+# Allows up to 30 seconds CPU time (vs 50ms default)
+usage_model = "unbound"
+
+# Set limits for Unbound workers
+[limits]
+cpu_ms = 30000  # 30 seconds max CPU time
+
 [[r2_buckets]]
 binding = "USER_UPLOADS_BUCKET"
 bucket_name = "useruploads"
