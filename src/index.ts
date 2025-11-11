@@ -576,7 +576,7 @@ async function generateGoldImage(imageBase64: string, env: Env, prompt?: string)
 	const startTime = Date.now();
 	console.log('🥇 Calling Fal Flux Kontext LoRA API for gold version...');
 
-	const defaultPrompt = 'Convert input photos into highly detailed gold pendant charms with a realistic 3D metallic embossed style, preserving likeness and fine features, using silvercharmstyle. output should be castable. keep a plain white background.';
+	const defaultPrompt = 'Convert input photos into highly detailed gold pendant charms with a realistic 3D metallic style, preserving likeness and fine features, using silvercharmstyle. output should be castable. keep a plain white background.';
 	const finalPrompt = (prompt && prompt.trim().length > 0) ? prompt : defaultPrompt;
 	console.log('📝 Fal prompt (preview):', finalPrompt.slice(0, 160));
 	
