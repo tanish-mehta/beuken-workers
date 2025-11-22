@@ -48,15 +48,14 @@ For productName and story:
 For prompt (strict format):
 - Give a basic, short description of what needs to be converted into the charm using only nouns and count (e.g., "a dog", "two men", "a car", "a couple"). Do NOT include any colors, materials, sizes, or adjectives.
 - Then produce the prompt exactly in this format using that description:
-  convert this image of <basic short description> into a highly detailed gold pendant charm with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. no blurriness, no distortion.
-- IMPORTANT: If the image subject is a dog or cat, make this the prompt: Convert this input photo of dog/cat into a highly detailed gold pendant charms with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. the animals eyes, accessories etc should all be gold. dont let any blackness be on the charm the fur should be fluffy looking like the input image. but the fur should be looking animated, so not hyper realistic. if the animal is not in a charm position, reorient it slightly so it becomes a nice charm. keep eyes gold. make the dog look super cute. dont make the fur very fine. the fur needs to look longer and animated
+  Convert this image of <basic short description> into a 3D figurine gold charm. Image style- product photography. product centered on a white background. keep a small loop at the top. output should look like a finished jewelry charm, therefore ensure it is a one piece casting, don't keep sharp edges as well. there should be no color used apart from gold.
 
 
 Return JSON format only:
 {
   "productName": "Short, catchy (max 3 words)",
   "story": "2–3 sentences product description",
-  "prompt": "convert this image of <basic short . eg, man, woman holding a dog, book, scenery, etc> into a highly detailed gold pendant charm with a realistic 3D metallic style, preserving likeness and fine features. output should be castable. no blurriness, no distortion."
+  "prompt": "Convert this image of <basic short description, e.g. a dog, two people, a car> into a 3D figurine gold charm. Image style- product photography. product centered on a white background. keep a small loop at the top. output should look like a finished jewelry charm, therefore ensure it is a one piece casting, don't keep sharp edges as well. there should be no color used apart from gold."
 }`
               },
               {
@@ -94,7 +93,7 @@ Return JSON format only:
 
     const productName = parsed?.productName || 'Custom Charm';
     const story = parsed?.story || 'A beautiful memory captured in a charm, ready to be treasured forever.';
-    const prompt = parsed?.prompt || 'Convert the subject to a detailed 24k jewelry-quality gold pendant charm with realistic metallic relief, preserving likeness and fine features. Use a solid white background with no shadows or gradients.';
+    const prompt = parsed?.prompt || 'Convert the input image into a 3D figurine gold charm. Image style- product photography. product centered on a white background. keep a small loop at the top. output should look like a finished jewelry charm, therefore ensure it is a one piece casting, don\'t keep sharp edges as well. there should be no color used apart from gold.';
 
     return { productName, story, prompt };
   } catch (error) {
@@ -105,7 +104,7 @@ Return JSON format only:
     return {
       productName: 'Custom Charm',
       story: 'A beautiful memory captured in a charm, ready to be treasured forever.',
-      prompt: 'Convert the subject to a detailed 24k jewelry-quality gold pendant charm with realistic metallic relief, preserving likeness and fine features. Use a solid white background with no shadows or gradients.'
+      prompt: 'Convert the input image into a 3D figurine gold charm. Image style- product photography. product centered on a white background. keep a small loop at the top. output should look like a finished jewelry charm, therefore ensure it is a one piece casting, don\'t keep sharp edges as well. there should be no color used apart from gold.'
     };
   }
 }
@@ -571,12 +570,12 @@ async function retryWithBackoff<T>(
 	throw lastError!;
 }
 
-// Optimized Fal LoRA API integration with retry and faster settings
+// Optimized Qwen Image Edit LoRA API integration with retry and faster settings
 async function generateGoldImage(imageBase64: string, env: Env, prompt?: string): Promise<string> {
 	const startTime = Date.now();
-	console.log('🥇 Calling Fal Flux Kontext LoRA API for gold version...');
+	console.log('🥇 Calling Qwen Image Edit LoRA API for gold version...');
 
-	const defaultPrompt = 'Convert input photos into highly detailed gold pendant charms with a realistic 3D metallic style, preserving likeness and fine features, using silvercharmstyle. output should be castable. keep a plain white background.';
+	const defaultPrompt = 'Convert the input image into a 3D figurine gold charm. Image style- product photography. product centered on a white background. keep a small loop at the top. output should look like a finished jewelry charm, therefore ensure it is a one piece casting, don\'t keep sharp edges as well. there should be no color used apart from gold.';
 	const finalPrompt = (prompt && prompt.trim().length > 0) ? prompt : defaultPrompt;
 	console.log('📝 Fal prompt (preview):', finalPrompt.slice(0, 160));
 	
@@ -586,7 +585,7 @@ async function generateGoldImage(imageBase64: string, env: Env, prompt?: string)
 		const timeoutId = setTimeout(() => controller.abort(), 90000);
 		
 		try {
-	const falResponse = await fetch('https://fal.run/fal-ai/flux-kontext-lora', {
+	const falResponse = await fetch('https://fal.run/fal-ai/qwen-image-edit-lora', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Key ${env.FAL_API_KEY}`,
@@ -596,14 +595,12 @@ async function generateGoldImage(imageBase64: string, env: Env, prompt?: string)
 		body: JSON.stringify({
 			image_url: `data:image/jpeg;base64,${imageBase64}`,
 					prompt: finalPrompt,
-					num_inference_steps: 50, // Further reduced for speed
-					guidance_scale: 2.5, // Slightly lower for faster processing
+					num_inference_steps: 50,
+					guidance_scale: 4, // Using the default from the playground
 			num_images: 1,
 					output_format: 'jpeg', // JPEG is faster than PNG
-					width: 1024, // Reduced resolution for faster processing
-			height: 1024,
 			loras: [{
-				path: 'https://v3.fal.media/files/koala/6BA9zqC6v0YIbZXy-5fb7_adapter_model.safetensors',
+				path: 'https://v3b.fal.media/files/b/elephant/26yNtCrAVeYIwHAaEv-Dw_pytorch_lora_weights.safetensors',
 				scale: 1.0
 			}]
 		})
@@ -613,17 +610,17 @@ async function generateGoldImage(imageBase64: string, env: Env, prompt?: string)
 
 	if (!falResponse.ok) {
 		const errorBody = await falResponse.text();
-		console.error('Fal LoRA API Error:', {
+		console.error('Qwen Image Edit LoRA API Error:', {
 			status: falResponse.status,
 			statusText: falResponse.statusText,
 			body: errorBody
 		});
-		throw new Error(`Fal LoRA API error: ${falResponse.status} - ${errorBody}`);
+		throw new Error(`Qwen Image Edit LoRA API error: ${falResponse.status} - ${errorBody}`);
 	}
 
 	const result = await falResponse.json() as any;
 			const responseTime = Date.now() - startTime;
-			console.log(`⏱️ Fal LoRA API took: ${responseTime}ms`);
+			console.log(`⏱️ Qwen Image Edit LoRA API took: ${responseTime}ms`);
 	return result.images[0].url;
 			
 		} catch (error) {
