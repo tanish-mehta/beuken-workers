@@ -288,6 +288,111 @@ async function resizeImageTo1024(buffer: ArrayBuffer, imageType: string): Promis
 	}
 }
 
+// Local fallback: resize to 1024x1024 with padding and convert to grayscale.
+// This is used only when Cloudflare URL transformations cannot fetch the source image
+// (e.g., when running `wrangler dev` with local R2 buckets).
+async function resizeAndGrayscaleTo1024(buffer: ArrayBuffer, imageType: string): Promise<string> {
+	console.log('🖼️ Resizing image to 1024x1024 and converting to grayscale (local fallback)...');
+	const startTime = Date.now();
+
+	try {
+		const uint8Array = new Uint8Array(buffer);
+		let imageData: { data: Uint8ClampedArray; width: number; height: number };
+
+		// Decode based on image type
+		if (imageType.includes('png')) {
+			const png = UPNG.decode(uint8Array.buffer);
+			const rgba = UPNG.toRGBA8(png)[0];
+			imageData = {
+				data: new Uint8ClampedArray(rgba),
+				width: png.width,
+				height: png.height
+			};
+		} else {
+			const decoded = JPEG.decode(uint8Array, { useTArray: true });
+			imageData = {
+				data: new Uint8ClampedArray(decoded.data.buffer),
+				width: decoded.width,
+				height: decoded.height
+			};
+		}
+
+		const targetSize = 1024;
+		const aspectRatio = imageData.width / imageData.height;
+
+		let scaledWidth: number;
+		let scaledHeight: number;
+
+		if (imageData.width > imageData.height) {
+			scaledWidth = targetSize;
+			scaledHeight = Math.round(targetSize / aspectRatio);
+		} else {
+			scaledHeight = targetSize;
+			scaledWidth = Math.round(targetSize * aspectRatio);
+		}
+
+		// Resize to scaled dimensions
+		const resizedData = bilinearResize(
+			imageData.data,
+			imageData.width,
+			imageData.height,
+			scaledWidth,
+			scaledHeight
+		);
+
+		// Create padded canvas (white background)
+		const finalData = new Uint8ClampedArray(targetSize * targetSize * 4);
+		for (let i = 0; i < finalData.length; i += 4) {
+			finalData[i] = 255;
+			finalData[i + 1] = 255;
+			finalData[i + 2] = 255;
+			finalData[i + 3] = 255;
+		}
+
+		const offsetX = Math.floor((targetSize - scaledWidth) / 2);
+		const offsetY = Math.floor((targetSize - scaledHeight) / 2);
+
+		for (let y = 0; y < scaledHeight; y++) {
+			for (let x = 0; x < scaledWidth; x++) {
+				const srcIdx = (y * scaledWidth + x) * 4;
+				const dstIdx = ((y + offsetY) * targetSize + (x + offsetX)) * 4;
+
+				finalData[dstIdx] = resizedData[srcIdx];
+				finalData[dstIdx + 1] = resizedData[srcIdx + 1];
+				finalData[dstIdx + 2] = resizedData[srcIdx + 2];
+				finalData[dstIdx + 3] = resizedData[srcIdx + 3];
+			}
+		}
+
+		// Convert to grayscale in-place (preserves alpha)
+		for (let i = 0; i < finalData.length; i += 4) {
+			const r = finalData[i];
+			const g = finalData[i + 1];
+			const b = finalData[i + 2];
+			// ITU-R BT.601 luma approximation
+			const y = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+			finalData[i] = y;
+			finalData[i + 1] = y;
+			finalData[i + 2] = y;
+		}
+
+		// Encode to JPEG
+		const encoded = JPEG.encode({
+			data: finalData,
+			width: targetSize,
+			height: targetSize
+		}, 95);
+
+		const base64 = arrayBufferToBase64(encoded.data.buffer as ArrayBuffer);
+		console.log(`⏱️ Local grayscale+resize took: ${Date.now() - startTime}ms`);
+		return base64;
+	} catch (error) {
+		console.error('❌ Error in local grayscale+resize fallback:', error);
+		// Absolute fallback: just return original as base64 (no resize)
+		return arrayBufferToBase64(buffer);
+	}
+}
+
 function getSupabase(env: Env) {
   console.log('🔗 Connecting to Supabase...');
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
@@ -394,7 +499,16 @@ async function uploadImageToStorage(imageBuffer: ArrayBuffer, filename: string):
 }
 
 // Helper function to upload image to Cloudflare R2 storage
-async function uploadImageToR2(imageBuffer: ArrayBuffer, filename: string, productId: string, env: Env): Promise<string> {
+async function uploadImageToR2(
+	imageBuffer: ArrayBuffer,
+	filename: string,
+	productId: string,
+	env: Env,
+	options?: {
+		contentType?: string;
+		typeMetadata?: string;
+	}
+): Promise<string> {
 	try {
 		console.log(`🔄 Attempting to upload ${filename} to R2 (${imageBuffer.byteLength} bytes)...`);
 		
@@ -413,12 +527,12 @@ async function uploadImageToR2(imageBuffer: ArrayBuffer, filename: string, produ
 		// Upload to R2 with metadata
 		await bucket.put(filename, imageBuffer, {
 			httpMetadata: {
-				contentType: 'image/jpeg',
+				contentType: options?.contentType || 'application/octet-stream',
 			},
 			customMetadata: {
 				productId: productId,
 				uploadedAt: new Date().toISOString(),
-				type: 'original-image'
+				type: options?.typeMetadata || 'image'
 			}
 		});
 		
@@ -438,6 +552,26 @@ async function uploadImageToR2(imageBuffer: ArrayBuffer, filename: string, produ
 		// Fallback to mock URL if R2 upload fails
 		return `https://storage.example.com/uploads/${filename}`;
 	}
+}
+
+function buildCloudflareImageTransformUrl(inputUrl: string, options: {
+	saturation?: number;
+	width?: number;
+	height?: number;
+	fit?: 'pad' | 'cover' | 'contain' | 'scale-down';
+	background?: string; // e.g. 'white' or '%23ffffff'
+	format?: 'jpeg' | 'png' | 'webp' | 'avif';
+}): string {
+	const parts: string[] = [];
+	if (typeof options.saturation === 'number') parts.push(`saturation=${options.saturation}`);
+	if (typeof options.width === 'number') parts.push(`width=${options.width}`);
+	if (typeof options.height === 'number') parts.push(`height=${options.height}`);
+	if (options.fit) parts.push(`fit=${options.fit}`);
+	if (options.background) parts.push(`background=${options.background}`);
+	if (options.format) parts.push(`format=${options.format}`);
+
+	const params = parts.join(',');
+	return `https://api.beuken.ai/cdn-cgi/image/${params}/${inputUrl}`;
 }
 
 // Optimized Groq API integration with timeout and retry logic
@@ -692,7 +826,10 @@ async function convertToGreyscale(goldCharmImageUrl: string, env: Env): Promise<
 		const silverFilename = `${randomId}-silver.jpg`;
 		const productId = Date.now().toString();
 		
-		const silverImageUrl = await uploadImageToR2(grayscaleArrayBuffer, silverFilename, productId, env);
+		const silverImageUrl = await uploadImageToR2(grayscaleArrayBuffer, silverFilename, productId, env, {
+			contentType: 'image/jpeg',
+			typeMetadata: 'silver-image',
+		});
 		
 		const responseTime = Date.now() - startTime;
 		console.log(`⏱️ Grayscale conversion and R2 upload took: ${responseTime}ms`);
@@ -1007,21 +1144,71 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 
 		console.log(`⏱️ Request started at ${startTime}ms for ${email}`);
 
-		// Step 1: File processing - resize to 1024x1024 for model, keep original for storage
+		// Step 0: IDs used for storage + metadata
+		const productId = Date.now().toString();
+		const randomId = crypto.randomUUID();
+
+		// Step 1: Upload original image to Cloudflare R2 (no local resize / storage)
 		const fileProcessingStart = Date.now();
 		const originalImageBuffer = await image.arrayBuffer();
-		
-		// Resize image to 1024x1024 for AI model (WASM-powered, fast!)
-		const resizedImageBase64 = await resizeImageTo1024(originalImageBuffer, image.type);
-		
-		console.log(`⏱️ File processing took: ${Date.now() - fileProcessingStart}ms`);
 
-		// Step 2: Sequential AI processing - Groq Vision → Fal → grayscale
-		console.log('🚶 Starting sequential AI processing with Groq Vision...');
+		// Use file extension that matches the upload type for better compatibility
+		const isPng = (image.type || '').includes('png');
+		const originalExt = isPng ? 'png' : 'jpg';
+
+		const originalImageUrl = await uploadImageToR2(
+			originalImageBuffer,
+			`${randomId}.${originalExt}`,
+			productId,
+			env,
+			{
+				contentType: image.type || (isPng ? 'image/png' : 'image/jpeg'),
+				typeMetadata: 'original-image',
+			}
+		);
+
+		console.log(`✅ Original image uploaded to R2: ${originalImageUrl}`);
+
+		// Step 2: Create a grayscale + 1024x1024 (padded) JPEG via Cloudflare transform
+		const grayscale1024Url = buildCloudflareImageTransformUrl(originalImageUrl, {
+			saturation: 0,
+			width: 1024,
+			height: 1024,
+			fit: 'pad',
+			background: 'white',
+			format: 'jpeg',
+		});
+
+		console.log('🧪 Cloudflare transformed input URL:', grayscale1024Url);
+
+		let grayscale1024Base64: string;
+		let groqInputKind: string = 'cloudflare_grayscale_1024_pad_white_jpeg';
+
+		try {
+			const grayscaleResponse = await fetch(grayscale1024Url);
+			if (!grayscaleResponse.ok) {
+				const errText = await grayscaleResponse.text().catch(() => '');
+				throw new Error(`Cloudflare transform failed (${grayscaleResponse.status}): ${errText}`);
+			}
+
+			const grayscale1024Buffer = await grayscaleResponse.arrayBuffer();
+			grayscale1024Base64 = arrayBufferToBase64(grayscale1024Buffer);
+		} catch (e) {
+			// Most common in local dev: R2 binding is "local" so the public r2.dev URL doesn't contain the object.
+			// Fallback to local processing so the request still succeeds in development.
+			console.warn('⚠️ Cloudflare transform unavailable; using local grayscale+resize fallback.', e);
+			grayscale1024Base64 = await resizeAndGrayscaleTo1024(originalImageBuffer, image.type || 'image/jpeg');
+			groqInputKind = 'local_fallback_grayscale_1024_pad_white_jpeg';
+		}
+
+		console.log(`⏱️ File + transform processing took: ${Date.now() - fileProcessingStart}ms`);
+
+		// Step 3: Sequential AI processing - Groq Vision → Fal → grayscale (silver)
+		console.log('🚶 Starting sequential AI processing with Groq Vision (grayscale input)...');
 		const aiProcessingStart = Date.now();
 
-		// 2a) Get Groq Vision prompt (and name/story) using resized image
-		const groqVision = await generateGroqVisionPrompt(resizedImageBase64, env);
+		// 3a) Get Groq Vision prompt (and name/story) using grayscale + resized Cloudflare output
+		const groqVision = await generateGroqVisionPrompt(grayscale1024Base64, env);
 		console.log('📝 Using Groq Vision prompt (preview):', groqVision.prompt.slice(0, 160));
 
 		// Keep external behavior: if user provided a story, keep it and default productName to 'Custom Charm'
@@ -1029,10 +1216,10 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 			? { productName: 'Custom Charm', story }
 			: { productName: groqVision.productName, story: groqVision.story };
 
-		// 2b) Generate gold image using Fal with resized image and Groq prompt
-		const goldImageUrl = await generateGoldImage(resizedImageBase64, env, groqVision.prompt);
+		// 3b) Generate gold image using Fal with the grayscale input image and Groq prompt
+		const goldImageUrl = await generateGoldImage(grayscale1024Base64, env, groqVision.prompt);
 
-		// 2c) Convert gold to grayscale for silver
+		// 3c) Convert gold to grayscale for silver
 		const silverImageUrl = await convertToGreyscale(goldImageUrl, env);
 
 		console.log(`⏱️ Sequential AI processing took: ${Date.now() - aiProcessingStart}ms`);
@@ -1043,13 +1230,10 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 			goldImageGenerated: !!goldImageUrl
 		});
 
-		// Step 3: Parallel final operations - Shopify product creation and R2 upload
+		// Step 4: Final operation - Shopify product creation
 		const finalOpsStart = Date.now();
-		const productId = Date.now().toString();
-		const randomId = crypto.randomUUID();
-		
-		const [createdProduct, r2ImageUrl] = await Promise.all([
-			createShopifyProduct(
+
+		const createdProduct = await createShopifyProduct(
 			'', // No original image in Shopify product
 			silverImageUrl,
 			goldImageUrl,
@@ -1058,12 +1242,9 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 			email,
 			publicGallery,
 			env
-			),
-			uploadImageToR2(originalImageBuffer, `${randomId}.jpg`, productId, env)
-		]);
+		);
 
 		console.log(`⏱️ Final operations took: ${Date.now() - finalOpsStart}ms`);
-		console.log(`✅ Original image uploaded to R2: ${r2ImageUrl}`);
 
 		// Save generation data to Supabase
 		await saveGenerationRow(env, {
@@ -1071,13 +1252,17 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 			email,
 			generationMethod: 'image_to_charm',
 			productCategory: 'pendant_charm',
-			inputImageUrl: r2ImageUrl,
+			inputImageUrl: originalImageUrl,
 			inputPrompt: groqVision.prompt || null,
-			originalImageUrl: r2ImageUrl,
+			originalImageUrl: originalImageUrl,
 			goldImageUrl,
 			silverImageUrl,
 			inspirationText: inspiration || null,
-			publicGallery
+			publicGallery,
+			attributes: {
+				groq_input_transform_url: grayscale1024Url,
+				groq_input_kind: groqInputKind,
+			}
 		});
 
 		const totalTime = Date.now() - startTime;
@@ -1088,7 +1273,7 @@ async function handleCreateCharm(request: Request, env: Env): Promise<Response> 
 			success: true,
 			productUrl: createdProduct.url,
 			data: {
-				originalImageUrl: r2ImageUrl,
+				originalImageUrl: originalImageUrl,
 				silverImageUrl,
 				goldImageUrl,
 				story: nameAndStory.story,
