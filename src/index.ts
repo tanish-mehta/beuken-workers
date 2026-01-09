@@ -109,22 +109,6 @@ Return JSON format only:
   }
 }
 
-// Safe helper function to convert File to base64 (handles large files)
-async function fileToBase64(file: File): Promise<string> {
-	const arrayBuffer = await file.arrayBuffer();
-	const bytes = new Uint8Array(arrayBuffer);
-	
-	// Process in chunks to avoid stack overflow on large images
-	const chunkSize = 8192; // 8KB chunks
-	let binary = '';
-	
-	for (let i = 0; i < bytes.length; i += chunkSize) {
-		const chunk = bytes.subarray(i, i + chunkSize);
-		binary += String.fromCharCode(...chunk);
-	}
-	
-	return btoa(binary);
-}
 
 // Helper to convert ArrayBuffer to base64
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -175,117 +159,6 @@ function bilinearResize(srcData: Uint8ClampedArray, srcWidth: number, srcHeight:
 	}
 	
 	return dstData;
-}
-
-// Resize image to fit within 1024x1024 with aspect ratio preserved and padding
-async function resizeImageTo1024(buffer: ArrayBuffer, imageType: string): Promise<string> {
-	console.log('🖼️ Resizing image to 1024x1024 with aspect ratio preservation...');
-	const startTime = Date.now();
-	
-	try {
-		const uint8Array = new Uint8Array(buffer);
-		let imageData: { data: Uint8ClampedArray; width: number; height: number };
-		
-		// Decode based on image type
-		if (imageType.includes('png')) {
-			// Decode PNG using upng-js (pure JS, Workers-compatible)
-			const png = UPNG.decode(uint8Array.buffer);
-			const rgba = UPNG.toRGBA8(png)[0]; // Get first frame as RGBA
-			imageData = {
-				data: new Uint8ClampedArray(rgba),
-				width: png.width,
-				height: png.height
-			};
-		} else {
-			// Default to JPEG (handles JPEG, JPG, and most other formats)
-			const decoded = JPEG.decode(uint8Array, { useTArray: true });
-			imageData = {
-				data: new Uint8ClampedArray(decoded.data.buffer),
-				width: decoded.width,
-				height: decoded.height
-			};
-		}
-		
-		console.log(`📐 Original size: ${imageData.width}x${imageData.height}`);
-		
-		// Calculate scaling to fit within 1024x1024 while maintaining aspect ratio
-		const targetSize = 1024;
-		const aspectRatio = imageData.width / imageData.height;
-		
-		let scaledWidth: number;
-		let scaledHeight: number;
-		
-		if (imageData.width > imageData.height) {
-			// Landscape: width is the limiting factor
-			scaledWidth = targetSize;
-			scaledHeight = Math.round(targetSize / aspectRatio);
-		} else {
-			// Portrait or square: height is the limiting factor
-			scaledHeight = targetSize;
-			scaledWidth = Math.round(targetSize * aspectRatio);
-		}
-		
-		console.log(`📐 Scaled size (before padding): ${scaledWidth}x${scaledHeight}`);
-		
-		// Resize to scaled dimensions (maintains aspect ratio)
-		const resizedData = bilinearResize(
-			imageData.data,
-			imageData.width,
-			imageData.height,
-			scaledWidth,
-			scaledHeight
-		);
-		
-		// Create 1024x1024 canvas with white background
-		const finalData = new Uint8ClampedArray(targetSize * targetSize * 4);
-		
-		// Fill with white (255, 255, 255, 255)
-		for (let i = 0; i < finalData.length; i += 4) {
-			finalData[i] = 255;     // R
-			finalData[i + 1] = 255; // G
-			finalData[i + 2] = 255; // B
-			finalData[i + 3] = 255; // A
-		}
-		
-		// Calculate padding offsets to center the image
-		const offsetX = Math.floor((targetSize - scaledWidth) / 2);
-		const offsetY = Math.floor((targetSize - scaledHeight) / 2);
-		
-		console.log(`📐 Padding offsets: X=${offsetX}, Y=${offsetY}`);
-		
-		// Copy resized image data into center of padded canvas
-		for (let y = 0; y < scaledHeight; y++) {
-			for (let x = 0; x < scaledWidth; x++) {
-				const srcIdx = (y * scaledWidth + x) * 4;
-				const dstIdx = ((y + offsetY) * targetSize + (x + offsetX)) * 4;
-				
-				finalData[dstIdx] = resizedData[srcIdx];         // R
-				finalData[dstIdx + 1] = resizedData[srcIdx + 1]; // G
-				finalData[dstIdx + 2] = resizedData[srcIdx + 2]; // B
-				finalData[dstIdx + 3] = resizedData[srcIdx + 3]; // A
-			}
-		}
-		
-		// Encode back to JPEG
-		const encoded = JPEG.encode({
-			data: finalData,
-			width: targetSize,
-			height: targetSize
-		}, 95);
-		
-		// Convert to base64
-		const base64 = arrayBufferToBase64(encoded.data.buffer as ArrayBuffer);
-		
-		const responseTime = Date.now() - startTime;
-		console.log(`⏱️ Image resize with padding took: ${responseTime}ms (final size: ${targetSize}x${targetSize})`);
-		
-		return base64;
-	} catch (error) {
-		console.error('❌ Error resizing image:', error);
-		console.warn('⚠️ Falling back to original image');
-		// Fallback: use original image
-		return arrayBufferToBase64(buffer);
-	}
 }
 
 // Local fallback: resize to 1024x1024 with padding and convert to grayscale.
@@ -491,13 +364,6 @@ async function saveGenerationRow(env: Env, params: {
   console.log('✅ Successfully saved generation data to Supabase');
 }
 
-// Helper function to upload image to a temporary storage (using a data URL for now)
-async function uploadImageToStorage(imageBuffer: ArrayBuffer, filename: string): Promise<string> {
-	// In a real implementation, you would upload to Supabase or another storage service
-	// For now, we'll return a mock URL
-	return `https://storage.example.com/uploads/${filename}`;
-}
-
 // Helper function to upload image to Cloudflare R2 storage
 async function uploadImageToR2(
 	imageBuffer: ArrayBuffer,
@@ -572,109 +438,6 @@ function buildCloudflareImageTransformUrl(inputUrl: string, options: {
 
 	const params = parts.join(',');
 	return `https://api.beuken.ai/cdn-cgi/image/${params}/${inputUrl}`;
-}
-
-// Optimized Groq API integration with timeout and retry logic
-async function generateProductNameAndStory(imageBase64: string, env: Env): Promise<{ productName: string; story: string }> {
-	const startTime = Date.now();
-	console.log('🎯 Generating product name and story with Groq...');
-	
-	// Create AbortController for timeout
-	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-	
-	try {
-	const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-		method: 'POST',
-		headers: {
-			'Authorization': `Bearer ${env.GROQ_API_KEY}`,
-			'Content-Type': 'application/json',
-		},
-			signal: controller.signal,
-		body: JSON.stringify({
-			model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-			messages: [
-				{
-					role: 'user',
-					content: [
-						{
-							type: 'text',
-							text: `Analyze this image and provide:
-1. A short, catchy product name (maximum 3 words) for a jewelry charm that will be created from this image
-2. A compelling 2-3 sentence product description for the jewelry charm that will be made from this image
-
-Return ONLY a valid JSON object with no markdown formatting, no code blocks, and no additional text:
-{
-  "productName": "Your Product Name",
-  "story": "Your product description here..."
-}
-
-Make the product name descriptive and appealing for a jewelry store (examples: "Golden Memory", "Silver Dreams", "Athletic Spirit"). The description should highlight the beauty, craftsmanship, and appeal of the jewelry charm that will be created from this image.`
-						},
-						{
-							type: 'image_url',
-							image_url: {
-								url: `data:image/jpeg;base64,${imageBase64}`
-							}
-						}
-					]
-				}
-			],
-			max_tokens: 200,
-			temperature: 0.7
-		})
-	});
-		
-		clearTimeout(timeoutId);
-
-	if (!groqResponse.ok) {
-		const errorBody = await groqResponse.text();
-		console.error('Groq API Error Details:', {
-			status: groqResponse.status,
-			statusText: groqResponse.statusText,
-			body: errorBody
-		});
-			throw new Error(`Groq API error: ${groqResponse.status}`);
-	}
-
-	const result = await groqResponse.json() as any;
-	const content = result.choices[0].message.content;
-
-	// Log Groq response content and minimal metadata for debugging
-	try {
-		console.log('🧠 Groq API raw response (trimmed):', {
-			id: result.id,
-			model: result.model,
-			created: result.created,
-			choicesCount: Array.isArray(result.choices) ? result.choices.length : 0,
-			content
-		});
-	} catch (_) {
-		// ignore logging issues
-	}
-	
-		// Parse JSON response (tolerates fenced markdown)
-		const parsed = parseJsonFromContent(String(content));
-		console.log('🧠 Groq parsed JSON:', parsed);
-		const responseTime = Date.now() - startTime;
-		console.log(`⏱️ Groq API took: ${responseTime}ms`);
-		
-		return {
-			productName: parsed.productName || 'Custom Charm',
-			story: parsed.story || 'A beautiful memory captured in a charm, ready to be treasured forever.'
-		};
-		
-	} catch (error) {
-		clearTimeout(timeoutId);
-		const responseTime = Date.now() - startTime;
-		console.error(`❌ Groq API failed after ${responseTime}ms:`, error);
-		
-		// Fallback values if API fails
-		return {
-			productName: 'Custom Charm',
-			story: 'A beautiful memory captured in a charm, ready to be treasured forever.'
-		};
-	}
 }
 
 // Retry helper function
@@ -843,61 +606,6 @@ async function convertToGreyscale(goldCharmImageUrl: string, env: Env): Promise<
 		console.log(`⏱️ Fallback to original image took: ${responseTime}ms`);
 		return goldCharmImageUrl;
 	}
-}
-
-// Optimized Fal Flux Kontext API integration for enhancing gold image with retry and faster settings  
-async function enhanceGoldImage(silverImageUrl: string, env: Env): Promise<string> {
-	const startTime = Date.now();
-	console.log('🥇 Calling Fal Flux Kontext API for gold enhancement...');
-	
-	return await retryWithBackoff(async () => {
-		// Increased timeout to 90s and optimized parameters for speed
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 90000);
-		
-		try {
-	const falResponse = await fetch('https://fal.run/fal-ai/flux-pro/kontext/max', {
-		method: 'POST',
-		headers: {
-			'Authorization': `Key ${env.FAL_API_KEY}`,
-			'Content-Type': 'application/json',
-		},
-				signal: controller.signal,
-		body: JSON.stringify({
-			image_url: silverImageUrl,
-			prompt: 'Convert the object in this image into a polished gold version. Maintain the exact shape, proportions, and details of the original object. Render it as shiny metallic gold with realistic reflections, highlights, and shadows. Ensure the gold looks like 24k jewelry-quality metal — smooth, glossy, and professional. The quality of the input may be a bit unclear so please properly transfer the accurate details.',
-					num_inference_steps: 40, // Further reduced for speed
-					guidance_scale: 2.5, // Slightly lower for faster processing  
-			num_images: 1,
-					output_format: 'jpeg', // JPEG is faster than PNG
-					width: 1024, // Reduced resolution for faster processing
-			height: 1024,
-					 resolution_mode: '1:1',
-		})
-	});
-			
-			clearTimeout(timeoutId);
-
-	if (!falResponse.ok) {
-		const errorBody = await falResponse.text();
-		console.error('Fal Flux Kontext Max API Error:', {
-			status: falResponse.status,
-			statusText: falResponse.statusText,
-			body: errorBody
-		});
-		throw new Error(`Fal Flux Kontext Max API error: ${falResponse.status} - ${errorBody}`);
-	}
-
-	const result = await falResponse.json() as any;
-			const responseTime = Date.now() - startTime;
-			console.log(`⏱️ Fal Flux Kontext Max API took: ${responseTime}ms`);
-	return result.images[0].url;
-			
-		} catch (error) {
-			clearTimeout(timeoutId);
-			throw error;
-		}
-	}, 1); // Only 1 retry to avoid excessive delays
 }
 
 /**
