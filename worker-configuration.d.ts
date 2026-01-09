@@ -20,7 +20,7 @@ declare namespace Cloudflare {
 		OPENAI_API_KEY: string;
 		FAL_API_KEY: string;
 		SHOPIFY_ACCESS_TOKEN: string;
-		GROQ_API_KEY: string;
+		GROQ_API_KEY?: string;
 	}
 }
 interface Env extends Cloudflare.Env {
